@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "OpenTask workflow orchestration and visualization."
 requires-python = ">=3.12"
 dependencies = [
+    "cryptography>=46.0.3",
     "fastapi>=0.135.1",
     "httpx>=0.28.1",
     "pydantic>=2.12.5",

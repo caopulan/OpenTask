@@ -6,6 +6,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from opentask.api.main import create_app
+from opentask.openclaw_client import OpenClawGatewayError
 from opentask.service import OpenTaskService
 from opentask.store import RunStore
 from tests.test_service import FakeGateway
@@ -80,3 +81,23 @@ nodes:
         assert approve_res.status_code == 200
         approved_gate = next(node for node in approve_res.json()["nodes"] if node["id"] == "gate")
         assert approved_gate["status"] == "completed"
+
+
+class FailingGateway(FakeGateway):
+    async def send_chat(self, **kwargs):
+        raise OpenClawGatewayError("INVALID_REQUEST", "invalid chat.send params")
+
+
+@pytest.mark.asyncio
+async def test_api_returns_gateway_errors_as_502(tmp_path: Path) -> None:
+    app = create_app(
+        OpenTaskService(store=RunStore(runtime_root=tmp_path / ".opentask"), gateway=FailingGateway())
+    )
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post(
+            "/api/runs",
+            json={"taskText": "Inspect this task", "title": "API failure demo"},
+        )
+
+    assert response.status_code == 502
+    assert "gateway error" in response.json()["detail"]

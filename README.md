@@ -19,6 +19,8 @@ pnpm --dir web dev
 
 The backend listens on `http://127.0.0.1:8000`. The Vite dev server proxies `/api` and websocket traffic there by default. If you host the frontend separately, set `VITE_API_BASE` to the backend origin.
 
+For local OpenClaw usage, OpenTask will automatically reuse `~/.openclaw/identity/device.json` and `~/.openclaw/identity/device-auth.json` unless you override them with `OPENTASK_GATEWAY_DEVICE_IDENTITY_PATH` and `OPENTASK_GATEWAY_DEVICE_AUTH_PATH`.
+
 ## Runtime Layout
 
 Each run lives under `.opentask/runs/<runId>/`:

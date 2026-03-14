@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from watchfiles import Change, awatch
 
 from opentask.models import CreateRunRequest, NodeActionRequest
+from opentask.openclaw_client import OpenClawGatewayError
 from opentask.service import OpenTaskService
 
 
@@ -79,8 +80,11 @@ def create_app(service: OpenTaskService | None = None) -> FastAPI:
 
     @app.post("/api/runs")
     async def create_run(request: CreateRunRequest) -> dict:
-        run = await service.create_run(request)
-        return _serialize(run)
+        try:
+            run = await service.create_run(request)
+            return _serialize(run)
+        except OpenClawGatewayError as exc:
+            raise HTTPException(status_code=502, detail=f"gateway error: {exc}") from exc
 
     @app.get("/api/runs/{run_id}")
     async def get_run(run_id: str) -> dict:
@@ -123,6 +127,8 @@ def create_app(service: OpenTaskService | None = None) -> FastAPI:
             return _serialize(run)
         except FileNotFoundError as exc:
             raise HTTPException(status_code=404, detail=f"run not found: {run_id}") from exc
+        except OpenClawGatewayError as exc:
+            raise HTTPException(status_code=502, detail=f"gateway error: {exc}") from exc
 
     @app.websocket("/api/runs/{run_id}/stream")
     async def run_stream(websocket: WebSocket, run_id: str) -> None:
