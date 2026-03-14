@@ -1,0 +1,11 @@
+.DS_Store
+.venv/
+__pycache__/
+*.pyc
+
+# Local planning and scratch documents
+task_plan.md
+findings.md
+progress.md
+TaskOrchestrator.md
+cron_ref.md

@@ -1,0 +1,9 @@
+[project]
+name = "opentask"
+version = "0.1.0"
+description = "OpenTask workspace managed with uv."
+requires-python = ">=3.12"
+dependencies = []
+
+[tool.uv]
+package = false
