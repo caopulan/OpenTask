@@ -1,9 +1,27 @@
 [project]
 name = "opentask"
 version = "0.1.0"
-description = "OpenTask workspace managed with uv."
+description = "OpenTask workflow orchestration and visualization."
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "fastapi>=0.135.1",
+    "httpx>=0.28.1",
+    "pydantic>=2.12.5",
+    "pyyaml>=6.0.3",
+    "uvicorn[standard]>=0.41.0",
+    "watchfiles>=1.1.1",
+    "websockets>=16.0",
+]
+
+[build-system]
+requires = ["hatchling>=1.27.0"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = []
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/opentask"]
 
 [tool.uv]
-package = false
+package = true

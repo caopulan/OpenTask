@@ -2,6 +2,9 @@
 .venv/
 __pycache__/
 *.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 
 # Local planning and scratch documents
 task_plan.md
@@ -9,3 +12,11 @@ findings.md
 progress.md
 TaskOrchestrator.md
 cron_ref.md
+
+# OpenTask runtime state
+.opentask/
+
+# Frontend artifacts
+web/node_modules/
+web/dist/
+web/.vite/
