@@ -129,11 +129,17 @@ class RunStore:
         path.write_text(content, encoding="utf-8")
         return str(path.relative_to(self._run_dir(run_id)))
 
+    def write_support_file(self, run_id: str, filename: str, content: str) -> str:
+        path = self._run_dir(run_id) / filename
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+        return str(path.relative_to(self._run_dir(run_id)))
+
     def update_state_timestamp(self, state: RunState, *, last_event: str) -> RunState:
         return state.model_copy(
             update={
-                "updatedAt": utc_now(),
-                "lastEvent": last_event,
+                "updated_at": utc_now(),
+                "last_event": last_event,
             }
         )
 
