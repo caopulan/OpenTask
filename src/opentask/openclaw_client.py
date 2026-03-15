@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import asyncio
 import json
+from dataclasses import dataclass, field
 from pathlib import Path
 from time import time_ns
-from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlparse
 from uuid import uuid4
 
+import httpx
+import json5
 from websockets.asyncio.client import connect
 
 from .config import get_settings
@@ -42,11 +44,14 @@ class OpenClawClient:
     version: str = "0.1.0"
     device_identity_path: Path | None = None
     device_auth_path: Path | None = None
+    gateway_config_path: Path | None = None
     client_id: str | None = None
     client_display_name: str | None = None
     client_mode: str | None = None
     platform: str | None = None
     device_family: str | None = None
+    http_transport: httpx.AsyncBaseTransport | None = None
+    _gateway_config_cache: dict[str, Any] | None = field(default=None, init=False, repr=False)
 
     def __post_init__(self) -> None:
         settings = get_settings()
@@ -64,6 +69,8 @@ class OpenClawClient:
             self.device_identity_path = settings.gateway_device_identity_path
         if self.device_auth_path is None:
             self.device_auth_path = settings.gateway_device_auth_path
+        if self.gateway_config_path is None:
+            self.gateway_config_path = settings.gateway_config_path
         if self.client_id is None:
             self.client_id = settings.gateway_client_id
         if self.client_display_name is None:
@@ -214,6 +221,114 @@ class OpenClawClient:
         payload = await self.request("sessions.patch", params)
         return payload if isinstance(payload, dict) else {}
 
+    async def invoke_tool(
+        self,
+        *,
+        tool: str,
+        args: dict[str, Any] | None = None,
+        session_key: str | None = None,
+        action: str | None = None,
+        timeout_ms: int = 30_000,
+        headers: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
+        shared_secret = self._resolve_http_shared_secret()
+        if not shared_secret:
+            raise OpenClawGatewayError(
+                "gateway_http_auth_missing",
+                "Gateway shared token/password required for HTTP tool invoke.",
+            )
+
+        request_payload: dict[str, Any] = {
+            "tool": tool,
+            "args": args or {},
+        }
+        if session_key:
+            request_payload["sessionKey"] = session_key
+        if action:
+            request_payload["action"] = action
+
+        request_headers = {
+            "Authorization": f"Bearer {shared_secret}",
+            "Content-Type": "application/json",
+        }
+        if headers:
+            request_headers.update(headers)
+
+        async with httpx.AsyncClient(
+            transport=self.http_transport,
+            timeout=max(timeout_ms / 1000, 5),
+        ) as client:
+            response = await client.post(
+                self._http_base_url().rstrip("/") + "/tools/invoke",
+                json=request_payload,
+                headers=request_headers,
+            )
+
+        payload: dict[str, Any] | None = None
+        try:
+            parsed = response.json()
+        except ValueError:
+            parsed = None
+        if isinstance(parsed, dict):
+            payload = parsed
+
+        if response.status_code >= 400 or not (payload or {}).get("ok", False):
+            error = payload.get("error") if isinstance(payload, dict) else {}
+            if not isinstance(error, dict):
+                error = {}
+            raise OpenClawGatewayError(
+                str(error.get("type") or f"http_{response.status_code}"),
+                str(error.get("message") or f"HTTP tool invoke failed: {tool}"),
+                payload,
+            )
+
+        result = payload.get("result") if payload else {}
+        if isinstance(result, dict):
+            details = result.get("details")
+            if isinstance(details, dict):
+                return details
+            return result
+        return {}
+
+    async def spawn_session(
+        self,
+        *,
+        parent_session_key: str,
+        task: str,
+        label: str | None = None,
+        agent_id: str | None = None,
+        model: str | None = None,
+        thinking: str | None = None,
+        cwd: str | None = None,
+        timeout_seconds: int | None = None,
+        mode: str = "run",
+        cleanup: str = "keep",
+        sandbox: str = "inherit",
+    ) -> dict[str, Any]:
+        args: dict[str, Any] = {
+            "task": task,
+            "mode": mode,
+            "cleanup": cleanup,
+            "sandbox": sandbox,
+        }
+        if label:
+            args["label"] = label
+        if agent_id:
+            args["agentId"] = agent_id
+        if model:
+            args["model"] = model
+        if thinking:
+            args["thinking"] = thinking
+        if cwd:
+            args["cwd"] = cwd
+        if timeout_seconds is not None:
+            args["runTimeoutSeconds"] = timeout_seconds
+        return await self.invoke_tool(
+            tool="sessions_spawn",
+            args=args,
+            session_key=parent_session_key,
+        )
+
     def _connect_params(self, nonce: str | None) -> dict[str, Any]:
         role = self.role
         scopes = self.scopes or ["operator.admin"]
@@ -312,3 +427,50 @@ class OpenClawClient:
             token=token.strip(),
             scopes=[item for item in scopes if isinstance(item, str)] if isinstance(scopes, list) else None,
         )
+
+    def _http_base_url(self) -> str:
+        parsed = urlparse(str(self.url))
+        scheme = "https" if parsed.scheme == "wss" else "http"
+        if not parsed.netloc:
+            raise OpenClawGatewayError("invalid_gateway_url", f"Invalid gateway URL: {self.url}")
+        return parsed._replace(scheme=scheme, path="", params="", query="", fragment="").geturl()
+
+    def _resolve_http_shared_secret(self) -> str | None:
+        for candidate in (self.token, self.password):
+            if isinstance(candidate, str) and candidate.strip():
+                return candidate.strip()
+        gateway_auth = self._load_gateway_auth_from_config()
+        mode = gateway_auth.get("mode")
+        if mode == "password":
+            password = gateway_auth.get("password")
+            if isinstance(password, str) and password.strip():
+                return password.strip()
+        token = gateway_auth.get("token")
+        if isinstance(token, str) and token.strip():
+            return token.strip()
+        password = gateway_auth.get("password")
+        if isinstance(password, str) and password.strip():
+            return password.strip()
+        return None
+
+    def _load_gateway_auth_from_config(self) -> dict[str, Any]:
+        config = self._load_gateway_config()
+        gateway = config.get("gateway")
+        if not isinstance(gateway, dict):
+            return {}
+        auth = gateway.get("auth")
+        return auth if isinstance(auth, dict) else {}
+
+    def _load_gateway_config(self) -> dict[str, Any]:
+        if self._gateway_config_cache is not None:
+            return self._gateway_config_cache
+        path = Path(self.gateway_config_path) if self.gateway_config_path else None
+        if not path or not path.exists():
+            self._gateway_config_cache = {}
+            return self._gateway_config_cache
+        try:
+            loaded = json5.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            loaded = {}
+        self._gateway_config_cache = loaded if isinstance(loaded, dict) else {}
+        return self._gateway_config_cache

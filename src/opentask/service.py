@@ -8,7 +8,7 @@ from typing import Protocol
 from uuid import uuid4
 
 from .config import get_settings
-from .models import CreateRunRequest, NodeState, OpenClawRefs, RunEvent, RunState, WorkflowNode, utc_now
+from .models import CreateRunRequest, NodeState, OpenClawRefs, RunEvent, RunState, WorkflowDefinition, utc_now
 from .openclaw_client import OpenClawClient
 from .store import RunStore
 from .workflow import (
@@ -29,6 +29,22 @@ class GatewayProtocol(Protocol):
         timeout_ms: int,
         thinking: str | None = None,
         deliver: bool = False,
+    ) -> dict: ...
+
+    async def spawn_session(
+        self,
+        *,
+        parent_session_key: str,
+        task: str,
+        label: str | None = None,
+        agent_id: str | None = None,
+        model: str | None = None,
+        thinking: str | None = None,
+        cwd: str | None = None,
+        timeout_seconds: int | None = None,
+        mode: str = "run",
+        cleanup: str = "keep",
+        sandbox: str = "inherit",
     ) -> dict: ...
 
     async def wait_run(self, run_id: str, timeout_ms: int) -> dict: ...
@@ -99,7 +115,7 @@ class OpenTaskService:
         state = await self._sync_running_nodes(state)
         state = self._advance_waiting_nodes(state)
         state = self._promote_ready_nodes(state)
-        state = await self._dispatch_ready_nodes(state, workflow.definition.nodes, refs)
+        state = await self._dispatch_ready_nodes(state, workflow.definition, refs)
         state = await self._finalize_if_terminal(state)
         self.store.write_state(state)
         await self._publish(state)
@@ -467,10 +483,11 @@ class OpenTaskService:
     async def _dispatch_ready_nodes(
         self,
         state: RunState,
-        workflow_nodes: list[WorkflowNode],
+        workflow_definition: WorkflowDefinition,
         refs: OpenClawRefs,
     ) -> RunState:
-        definitions = {node.id: node for node in workflow_nodes}
+        definitions = {node.id: node for node in workflow_definition.nodes}
+        workflow_defaults = workflow_definition.defaults
         changed = False
         updated_nodes: list[NodeState] = []
 
@@ -546,27 +563,72 @@ class OpenTaskService:
                 )
                 continue
 
+            timeout_ms = (
+                definition.timeout_ms
+                or workflow_defaults.timeout_ms
+                or self.settings.default_tick_timeout_ms
+            )
+            if node.kind == "subagent":
+                parent_session_key = definition.session_key or state.driver_session_key
+                response = await self.gateway.spawn_session(
+                    parent_session_key=parent_session_key,
+                    task=definition.prompt,
+                    label=node.title,
+                    agent_id=workflow_defaults.agent_id,
+                    model=workflow_defaults.model,
+                    thinking=workflow_defaults.thinking,
+                    cwd=str(self.project_root),
+                    timeout_seconds=max(1, (timeout_ms + 999) // 1000),
+                )
+                child_session_key = str(response.get("childSessionKey") or "")
+                payload_update = {
+                    "status": "running",
+                    "started_at": utc_now(),
+                    "run_id": str(response.get("runId") or ""),
+                    "session_key": parent_session_key,
+                    "child_session_key": child_session_key or None,
+                }
+                updated = node.model_copy(update=payload_update)
+                refs.node_run_ids[node.id] = updated.run_id or ""
+                refs.node_sessions[node.id] = parent_session_key
+                if child_session_key:
+                    refs.child_sessions[node.id] = child_session_key
+                changed = True
+                updated_nodes.append(updated)
+                self.store.append_event(
+                    state.run_id,
+                    RunEvent(
+                        event="node.started",
+                        runId=state.run_id,
+                        nodeId=node.id,
+                        message="Subagent node spawned via sessions_spawn.",
+                        payload={
+                            "parentSessionKey": parent_session_key,
+                            "response": response,
+                        },
+                    ),
+                )
+                continue
+
             session_key = definition.session_key or self._session_key_for_node(state.run_id, node.id, node.kind)
             run_id = f"{state.run_id}-{node.id}-{uuid4().hex[:8]}"
             response = await self.gateway.send_chat(
                 session_key=session_key,
                 message=definition.prompt,
                 idempotency_key=run_id,
-                timeout_ms=definition.timeout_ms or self.settings.default_tick_timeout_ms,
+                timeout_ms=timeout_ms,
+                thinking=workflow_defaults.thinking,
             )
             gateway_status = response.get("status")
             payload_update = {
                 "status": "running" if gateway_status in {None, "accepted", "started", "timeout"} else "completed",
                 "started_at": utc_now(),
                 "run_id": str(response.get("runId") or response.get("id") or run_id),
-                "child_session_key" if node.kind == "subagent" else "session_key": session_key,
+                "session_key": session_key,
             }
             updated = node.model_copy(update=payload_update)
             refs.node_run_ids[node.id] = updated.run_id or run_id
-            if node.kind == "subagent":
-                refs.child_sessions[node.id] = session_key
-            else:
-                refs.node_sessions[node.id] = session_key
+            refs.node_sessions[node.id] = session_key
             changed = True
             updated_nodes.append(updated)
             self.store.append_event(
@@ -628,7 +690,7 @@ class OpenTaskService:
                 f"# {node.title}",
                 "",
                 f"- Status: {payload.get('status', 'ok')}",
-                f"- Session: {node.session_key or node.child_session_key or 'n/a'}",
+                f"- Session: {node.child_session_key or node.session_key or 'n/a'}",
                 f"- Run ID: {node.run_id or 'n/a'}",
                 "",
                 "```json",

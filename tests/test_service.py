@@ -13,6 +13,7 @@ class FakeGateway:
     def __init__(self) -> None:
         self.cron_enabled = True
         self.sent_messages: list[dict] = []
+        self.spawned_sessions: list[dict] = []
         self.wait_results: dict[str, dict] = {}
 
     async def send_chat(self, **kwargs):
@@ -23,6 +24,16 @@ class FakeGateway:
             status = "ok"
         self.wait_results.setdefault(run_id, {"status": "ok", "runId": run_id})
         return {"status": status, "runId": run_id}
+
+    async def spawn_session(self, **kwargs):
+        self.spawned_sessions.append(kwargs)
+        run_id = f"spawn-{len(self.spawned_sessions)}"
+        child_session_key = f"agent:main:subagent:{len(self.spawned_sessions)}"
+        self.wait_results.setdefault(
+            run_id,
+            {"status": "ok", "runId": run_id, "childSessionKey": child_session_key},
+        )
+        return {"status": "accepted", "runId": run_id, "childSessionKey": child_session_key}
 
     async def wait_run(self, run_id: str, timeout_ms: int):
         return self.wait_results.get(run_id, {"status": "timeout", "runId": run_id})
@@ -154,6 +165,49 @@ nodes:
     waiting = next(node for node in state.nodes if node.id == "wait-for-signal")
     finish = next(node for node in state.nodes if node.id == "finish")
     assert waiting.status == "completed"
+    assert finish.status == "completed"
+    assert state.status == "completed"
+
+
+@pytest.mark.asyncio
+async def test_subagent_nodes_use_sessions_spawn(tmp_path: Path) -> None:
+    gateway = FakeGateway()
+    service = OpenTaskService(store=RunStore(runtime_root=tmp_path / ".opentask"), gateway=gateway)
+    markdown = """---
+workflowId: subagent-demo
+title: Subagent demo
+defaults:
+  agentId: main
+nodes:
+  - id: delegate
+    title: Delegate
+    kind: subagent
+    needs: []
+    prompt: Implement the delegated task
+    outputs:
+      mode: report
+  - id: finish
+    title: Finish
+    kind: summary
+    needs: [delegate]
+    prompt: Done
+    outputs:
+      mode: report
+---
+"""
+
+    state = await service.create_run(CreateRunRequest(workflowMarkdown=markdown))
+    delegate = next(node for node in state.nodes if node.id == "delegate")
+    assert delegate.status == "running"
+    assert delegate.child_session_key == "agent:main:subagent:1"
+    assert gateway.spawned_sessions[0]["task"] == "Implement the delegated task"
+    assert gateway.spawned_sessions[0]["cwd"] == str(service.project_root)
+    assert all("Implement the delegated task" not in msg["message"] for msg in gateway.sent_messages)
+
+    state = await service.tick_run(state.run_id)
+    delegate = next(node for node in state.nodes if node.id == "delegate")
+    finish = next(node for node in state.nodes if node.id == "finish")
+    assert delegate.status == "completed"
     assert finish.status == "completed"
     assert state.status == "completed"
 

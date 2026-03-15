@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 import pytest
+import httpx
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from websockets.asyncio.server import serve
@@ -170,3 +171,71 @@ async def test_openclaw_client_omits_device_identity_for_loopback_shared_token(t
     assert connect_params["auth"]["token"] == "shared-token"
     assert "deviceToken" not in connect_params["auth"]
     assert "device" not in connect_params
+
+
+@pytest.mark.asyncio
+async def test_openclaw_client_invokes_sessions_spawn_over_http(tmp_path: Path) -> None:
+    config_path = tmp_path / "openclaw.json"
+    config_path.write_text(
+        """{
+  // shared secret for HTTP tool invoke
+  gateway: {
+    auth: {
+      mode: "token",
+      token: "config-token",
+    },
+  },
+}
+""",
+        encoding="utf-8",
+    )
+    captured: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["url"] = str(request.url)
+        captured["auth"] = request.headers.get("Authorization")
+        captured["body"] = json.loads(request.content.decode("utf-8"))
+        return httpx.Response(
+            200,
+            json={
+                "ok": True,
+                "result": {
+                    "details": {
+                        "status": "accepted",
+                        "runId": "spawn-run-1",
+                        "childSessionKey": "agent:main:subagent:child-1",
+                    }
+                },
+            },
+        )
+
+    client = OpenClawClient(
+        url="ws://127.0.0.1:18789",
+        gateway_config_path=config_path,
+        http_transport=httpx.MockTransport(handler),
+    )
+    payload = await client.spawn_session(
+        parent_session_key="agent:main:main",
+        task="Delegate work",
+        label="Delegate",
+        cwd="/tmp/demo",
+        timeout_seconds=30,
+    )
+
+    assert payload["status"] == "accepted"
+    assert payload["childSessionKey"] == "agent:main:subagent:child-1"
+    assert captured["url"] == "http://127.0.0.1:18789/tools/invoke"
+    assert captured["auth"] == "Bearer config-token"
+    assert captured["body"] == {
+        "tool": "sessions_spawn",
+        "args": {
+            "task": "Delegate work",
+            "mode": "run",
+            "cleanup": "keep",
+            "sandbox": "inherit",
+            "label": "Delegate",
+            "cwd": "/tmp/demo",
+            "runTimeoutSeconds": 30,
+        },
+        "sessionKey": "agent:main:main",
+    }

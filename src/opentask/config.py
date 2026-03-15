@@ -20,6 +20,13 @@ def _default_gateway_state_dir() -> Path:
     return Path(_env_first("OPENTASK_GATEWAY_STATE_DIR", "OPENCLAW_STATE_DIR") or "~/.openclaw").expanduser()
 
 
+def _default_gateway_config_path() -> Path:
+    return Path(
+        _env_first("OPENTASK_GATEWAY_CONFIG_PATH", "OPENCLAW_CONFIG_PATH")
+        or (_default_gateway_state_dir() / "openclaw.json")
+    ).expanduser()
+
+
 def _default_gateway_scopes() -> list[str]:
     raw = _env_first("OPENTASK_GATEWAY_SCOPES")
     if not raw:
@@ -39,6 +46,7 @@ class Settings(BaseModel):
     gateway_role: str = Field(default_factory=lambda: _env_first("OPENTASK_GATEWAY_ROLE") or "operator")
     gateway_scopes: list[str] = Field(default_factory=_default_gateway_scopes)
     gateway_state_dir: Path = Field(default_factory=_default_gateway_state_dir)
+    gateway_config_path: Path = Field(default_factory=_default_gateway_config_path)
     gateway_device_identity_path: Path = Field(
         default_factory=lambda: Path(
             _env_first("OPENTASK_GATEWAY_DEVICE_IDENTITY_PATH")
