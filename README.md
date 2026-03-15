@@ -61,7 +61,8 @@ See [workflows/research-demo.task.md](/Users/chunqiu/Documents/workspace/OpenTas
 
 - A run bootstraps one planner session, one driver session, and one driver cron.
 - `session_turn` nodes use persistent per-node sessions.
-- `subagent` nodes use isolated per-node sessions and record `childSessionKey` in run state.
+- `subagent` nodes use `sessions_spawn` and record `childSessionKey` in run state.
+- Driver sessions can emit `<opentask-mutation>{...}</opentask-mutation>` blocks to add or rewire nodes while a run is active.
 - Wait and approval nodes are resolved from local run state plus operator actions.
 
 ## Verification

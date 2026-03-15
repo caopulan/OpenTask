@@ -75,6 +75,11 @@ def parse_workflow_markdown(markdown: str, *, source_path: str | None = None) ->
     return ParsedWorkflow(definition=definition, body=body, sourcePath=source_path)
 
 
+def validate_workflow_definition(workflow: WorkflowDefinition) -> WorkflowDefinition:
+    _validate_graph(workflow)
+    return workflow
+
+
 def load_workflow(path: Path) -> ParsedWorkflow:
     return parse_workflow_markdown(path.read_text(encoding="utf-8"), source_path=str(path))
 

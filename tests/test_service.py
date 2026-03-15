@@ -15,6 +15,7 @@ class FakeGateway:
         self.sent_messages: list[dict] = []
         self.spawned_sessions: list[dict] = []
         self.wait_results: dict[str, dict] = {}
+        self.session_histories: dict[str, list[dict]] = {}
 
     async def send_chat(self, **kwargs):
         self.sent_messages.append(kwargs)
@@ -49,7 +50,7 @@ class FakeGateway:
         return {"jobId": job_id, "status": "ok"}
 
     async def chat_history(self, session_key: str, limit: int = 20):
-        return []
+        return self.session_histories.get(session_key, [])[-limit:]
 
 
 @pytest.mark.asyncio
@@ -210,6 +211,49 @@ nodes:
     assert delegate.status == "completed"
     assert finish.status == "completed"
     assert state.status == "completed"
+
+
+@pytest.mark.asyncio
+async def test_driver_directive_can_add_and_rewire_nodes(tmp_path: Path) -> None:
+    gateway = FakeGateway()
+    service = OpenTaskService(store=RunStore(runtime_root=tmp_path / ".opentask"), gateway=gateway)
+
+    state = await service.create_run(CreateRunRequest(taskText="Draft an implementation plan", title="Driver mutate"))
+    gateway.session_histories[state.driver_session_key] = [
+        {
+            "role": "assistant",
+            "content": (
+                "<opentask-mutation>"
+                '{"id":"drv-1","summary":"add review stage","mutations":['
+                '{"kind":"add_node","node":{"id":"review","title":"Review draft","kind":"session_turn",'
+                '"needs":["execute-task"],"prompt":"Review the draft output","outputs":{"mode":"report"}}},'
+                '{"kind":"rewire_node","nodeId":"summary","needs":["review"]}'
+                "]}"
+                "</opentask-mutation>"
+            ),
+        }
+    ]
+
+    state = await service.tick_run(state.run_id)
+
+    review = next(node for node in state.nodes if node.id == "review")
+    summary = next(node for node in state.nodes if node.id == "summary")
+    execute = next(node for node in state.nodes if node.id == "execute-task")
+    assert execute.status == "completed"
+    assert review.status == "running"
+    assert summary.status == "pending"
+    assert summary.needs == ["review"]
+
+    workflow = service.store.load_workflow_lock(state.run_id)
+    assert [node.id for node in workflow.definition.nodes][-2:] == ["review", "summary"]
+    events = service.get_events(state.run_id)
+    assert any(event.event == "node.added" and event.node_id == "review" for event in events)
+    assert any(event.event == "node.rewired" and event.node_id == "summary" for event in events)
+    assert any(event.event == "driver.directive.applied" for event in events)
+
+    state = await service.tick_run(state.run_id)
+    assert [node.id for node in state.nodes].count("review") == 1
+    assert any(item["message"] == "Review the draft output" for item in gateway.sent_messages)
 
 
 @pytest.mark.asyncio

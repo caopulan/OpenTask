@@ -8,14 +8,18 @@ from typing import Protocol
 from uuid import uuid4
 
 from .config import get_settings
+from .driver_protocol import driver_mutation_instructions, extract_driver_directives
 from .models import CreateRunRequest, NodeState, OpenClawRefs, RunEvent, RunState, WorkflowDefinition, utc_now
 from .openclaw_client import OpenClawClient
 from .store import RunStore
 from .workflow import (
     build_starter_workflow,
     ensure_summary_node,
+    ensure_relative_paths,
     load_workflow,
+    normalize_artifact_paths,
     parse_workflow_markdown,
+    validate_workflow_definition,
 )
 
 
@@ -114,6 +118,7 @@ class OpenTaskService:
 
         state = await self._sync_running_nodes(state)
         state = self._advance_waiting_nodes(state)
+        state, workflow = await self._apply_driver_directives(state, workflow)
         state = self._promote_ready_nodes(state)
         state = await self._dispatch_ready_nodes(state, workflow.definition, refs)
         state = await self._finalize_if_terminal(state)
@@ -379,6 +384,61 @@ class OpenTaskService:
             last_event="node.completed",
         )
 
+    async def _apply_driver_directives(
+        self,
+        state: RunState,
+        workflow,
+    ) -> tuple[RunState, object]:
+        handled_ids = self._handled_driver_directive_ids(state.run_id)
+        history = await self.gateway.chat_history(state.driver_session_key, limit=20)
+        directives = [directive for directive in extract_driver_directives(history) if directive.id not in handled_ids]
+        if not directives:
+            return state, workflow
+
+        next_state = state
+        next_workflow = workflow
+        changed = False
+
+        for directive in directives:
+            try:
+                next_state, next_workflow = self._apply_driver_directive(next_state, next_workflow, directive)
+            except Exception as exc:
+                self.store.append_event(
+                    state.run_id,
+                    RunEvent(
+                        event="driver.directive.rejected",
+                        runId=state.run_id,
+                        message=f"Rejected driver directive {directive.id}: {exc}",
+                        payload={"directiveId": directive.id, "summary": directive.summary or ""},
+                    ),
+                )
+                continue
+
+            changed = True
+            self.store.append_event(
+                state.run_id,
+                RunEvent(
+                    event="driver.directive.applied",
+                    runId=state.run_id,
+                    message=f"Applied driver directive {directive.id}.",
+                    payload={
+                        "directiveId": directive.id,
+                        "summary": directive.summary or "",
+                        "mutations": [
+                            mutation.model_dump(by_alias=True, exclude_none=True)
+                            for mutation in directive.mutations
+                        ],
+                    },
+                ),
+            )
+
+        if not changed:
+            return state, workflow
+
+        self.store.write_workflow_lock(state.run_id, next_workflow)
+        next_state = self.store.update_state_timestamp(next_state, last_event="driver.directive.applied")
+        return next_state, next_workflow
+
     def _advance_waiting_nodes(self, state: RunState) -> RunState:
         changed = False
         updated_nodes: list[NodeState] = []
@@ -450,6 +510,95 @@ class OpenTaskService:
             state.model_copy(update={"nodes": updated_nodes}),
             last_event="node.completed",
         )
+
+    def _apply_driver_directive(self, state: RunState, workflow, directive) -> tuple[RunState, object]:
+        definition = workflow.definition
+        workflow_nodes = list(definition.nodes)
+        state_nodes = list(state.nodes)
+        state_by_id = {node.id: node for node in state_nodes}
+
+        for mutation in directive.mutations:
+            if mutation.kind == "add_node":
+                if any(node.id == mutation.node.id for node in workflow_nodes):
+                    raise ValueError(f"node already exists: {mutation.node.id}")
+                insert_at = next(
+                    (index for index, workflow_node in enumerate(workflow_nodes) if workflow_node.kind == "summary"),
+                    len(workflow_nodes),
+                )
+                next_workflow_nodes = [
+                    *workflow_nodes[:insert_at],
+                    mutation.node,
+                    *workflow_nodes[insert_at:],
+                ]
+                validate_workflow_definition(definition.model_copy(update={"nodes": next_workflow_nodes}))
+                workflow_nodes = next_workflow_nodes
+                state_nodes = [
+                    *state_nodes[:insert_at],
+                    self._node_state_from_definition(mutation.node),
+                    *state_nodes[insert_at:],
+                ]
+                self._ensure_node_runtime_dir(state.run_id, mutation.node.id)
+                self.store.append_event(
+                    state.run_id,
+                    RunEvent(
+                        event="node.added",
+                        runId=state.run_id,
+                        nodeId=mutation.node.id,
+                        message=f"Driver added node {mutation.node.id}.",
+                        payload=mutation.node.model_dump(by_alias=True, exclude_none=True),
+                    ),
+                )
+                state_by_id[mutation.node.id] = state_nodes[-1]
+                continue
+
+            target = state_by_id.get(mutation.node_id)
+            if target is None:
+                raise ValueError(f"unknown node for rewire: {mutation.node_id}")
+            if target.status not in {"pending", "ready"}:
+                raise ValueError(
+                    f"cannot rewire node {mutation.node_id} while status={target.status}"
+                )
+
+            updated_workflow_nodes: list[WorkflowDefinition | object] = []
+            updated_state_nodes: list[NodeState] = []
+            for workflow_node in workflow_nodes:
+                if workflow_node.id == mutation.node_id:
+                    updated_workflow_nodes.append(workflow_node.model_copy(update={"needs": mutation.needs}))
+                else:
+                    updated_workflow_nodes.append(workflow_node)
+            validate_workflow_definition(definition.model_copy(update={"nodes": updated_workflow_nodes}))
+
+            for state_node in state_nodes:
+                if state_node.id == mutation.node_id:
+                    updated_state = state_node.model_copy(
+                        update={
+                            "needs": mutation.needs,
+                            "status": "pending",
+                            "notes": [*state_node.notes, "Rewired by driver directive."],
+                        }
+                    )
+                    updated_state_nodes.append(updated_state)
+                    state_by_id[mutation.node_id] = updated_state
+                else:
+                    updated_state_nodes.append(state_node)
+            workflow_nodes = list(updated_workflow_nodes)
+            state_nodes = updated_state_nodes
+            self.store.append_event(
+                state.run_id,
+                RunEvent(
+                    event="node.rewired",
+                    runId=state.run_id,
+                    nodeId=mutation.node_id,
+                    message=f"Driver rewired node {mutation.node_id}.",
+                    payload={"needs": mutation.needs},
+                ),
+            )
+
+        updated_definition = definition.model_copy(update={"nodes": workflow_nodes})
+        validate_workflow_definition(updated_definition)
+        updated_workflow = workflow.model_copy(update={"definition": updated_definition})
+        updated_state = state.model_copy(update={"nodes": state_nodes})
+        return updated_state, updated_workflow
 
     def _promote_ready_nodes(self, state: RunState) -> RunState:
         status_by_id = {node.id: node.status for node in state.nodes}
@@ -729,7 +878,34 @@ class OpenTaskService:
         return (
             f"You are the idempotent driver for OpenTask run {run_id}.\n"
             "On each tick, read workflow.lock.md, state.json, and nodes/* artifacts.\n"
-            "Never repeat completed nodes. Advance only ready nodes, inspect running nodes, and record all mutations in events.jsonl."
+            "Never repeat completed nodes. Advance only ready nodes, inspect running nodes, and record all mutations in events.jsonl.\n"
+            f"{driver_mutation_instructions()}"
+        )
+
+    def _handled_driver_directive_ids(self, run_id: str) -> set[str]:
+        handled: set[str] = set()
+        for event in self.store.load_events(run_id):
+            if event.event not in {"driver.directive.applied", "driver.directive.rejected"}:
+                continue
+            directive_id = event.payload.get("directiveId")
+            if isinstance(directive_id, str) and directive_id:
+                handled.add(directive_id)
+        return handled
+
+    def _ensure_node_runtime_dir(self, run_id: str, node_id: str) -> None:
+        (self.store.runs_root / run_id / "nodes" / node_id).mkdir(parents=True, exist_ok=True)
+
+    def _node_state_from_definition(self, node) -> NodeState:
+        artifact_paths = ensure_relative_paths(normalize_artifact_paths(node))
+        return NodeState(
+            id=node.id,
+            title=node.title,
+            kind=node.kind,
+            status="pending",
+            needs=node.needs,
+            outputsMode=node.outputs.mode,
+            artifactPaths=artifact_paths,
+            waitFor=node.wait_for,
         )
 
     def _session_key_for_node(self, run_id: str, node_id: str, kind: str) -> str:

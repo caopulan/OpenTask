@@ -1,14 +1,15 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, model_validator
 
 NodeKind = Literal["session_turn", "subagent", "wait", "approval", "summary"]
 OutputMode = Literal["notify", "report"]
 NodeStatus = Literal["pending", "ready", "running", "waiting", "completed", "failed", "skipped"]
 RunStatus = Literal["draft", "running", "paused", "completed", "failed", "cancelled"]
+MutationKind = Literal["add_node", "rewire_node"]
 
 
 def utc_now() -> str:
@@ -154,3 +155,23 @@ class CreateRunRequest(OpenTaskModel):
 class NodeActionRequest(OpenTaskModel):
     node_id: str | None = Field(default=None, alias="nodeId")
 
+
+class AddNodeMutation(OpenTaskModel):
+    kind: Literal["add_node"] = "add_node"
+    node: WorkflowNode
+
+
+class RewireNodeMutation(OpenTaskModel):
+    kind: Literal["rewire_node"] = "rewire_node"
+    node_id: str = Field(alias="nodeId")
+    needs: list[str] = Field(default_factory=list)
+
+
+WorkflowMutation = Annotated[AddNodeMutation | RewireNodeMutation, Field(discriminator="kind")]
+WORKFLOW_MUTATION_ADAPTER = TypeAdapter(WorkflowMutation)
+
+
+class DriverMutationDirective(OpenTaskModel):
+    id: str
+    summary: str | None = None
+    mutations: list[WorkflowMutation]
