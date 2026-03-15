@@ -338,6 +338,32 @@ class OpenClawClient:
             session_key=parent_session_key,
         )
 
+    async def send_outbound_message(
+        self,
+        *,
+        session_key: str,
+        channel: str,
+        to: str,
+        message: str,
+        account_id: str | None = None,
+        thread_id: str | None = None,
+    ) -> dict[str, Any]:
+        args: dict[str, Any] = {
+            "channel": channel,
+            "to": to,
+            "message": message,
+        }
+        if account_id:
+            args["accountId"] = account_id
+        if thread_id:
+            args["threadId"] = thread_id
+        return await self.invoke_tool(
+            tool="message",
+            action="send",
+            args=args,
+            session_key=session_key,
+        )
+
     def _connect_params(self, nonce: str | None) -> dict[str, Any]:
         role = self.role
         scopes = self.scopes or ["operator.admin"]

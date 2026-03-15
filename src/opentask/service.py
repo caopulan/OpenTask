@@ -10,7 +10,18 @@ from uuid import uuid4
 
 from .config import get_settings
 from .driver_protocol import driver_mutation_instructions, extract_driver_directives
-from .models import CreateRunRequest, NodeState, OpenClawRefs, RunEvent, RunState, WorkflowDefinition, utc_now
+from .models import (
+    CreateRunRequest,
+    NodeResult,
+    NodeState,
+    RunActionRequest,
+    RunControlAction,
+    RunEvent,
+    RunRefs,
+    RunState,
+    WorkflowDefinition,
+    utc_now,
+)
 from .openclaw_client import OpenClawClient, OpenClawGatewayError
 from .run_lock import RunFileLock
 from .session_keys import qualify_agent_session_key
@@ -65,6 +76,17 @@ class GatewayProtocol(Protocol):
 
     async def chat_history(self, session_key: str, limit: int = 20) -> list[dict]: ...
 
+    async def send_outbound_message(
+        self,
+        *,
+        session_key: str,
+        channel: str,
+        to: str,
+        message: str,
+        account_id: str | None = None,
+        thread_id: str | None = None,
+    ) -> dict: ...
+
 
 TERMINAL_STATUSES = {"completed", "failed", "skipped"}
 DRIVER_BOOKKEEPING_EVENTS = {
@@ -76,6 +98,20 @@ DRIVER_BOOKKEEPING_EVENTS = {
     "driver.history.unavailable",
     "driver.directive.applied",
     "driver.directive.rejected",
+}
+PROGRESS_EVENTS = {
+    "plan.generated",
+    "node.started",
+    "node.completed",
+    "node.failed",
+    "node.waiting",
+    "node.skipped",
+    "node.added",
+    "node.rewired",
+    "run.paused",
+    "run.resumed",
+    "run.completed",
+    "cron.patched",
 }
 
 
@@ -104,12 +140,72 @@ class OpenTaskService:
     def get_events(self, run_id: str, limit: int | None = None) -> list[RunEvent]:
         return self.store.load_events(run_id, limit=limit)
 
+    async def bind_run(
+        self,
+        run_id: str,
+        *,
+        source_session_key: str | None = None,
+        source_agent_id: str | None = None,
+        delivery_context=None,
+        root_session_key: str | None = None,
+    ) -> RunState:
+        async with self._run_scope(run_id):
+            state = self.store.load_state(run_id)
+            refs = self.store.load_run_refs(run_id)
+            resolved_root_session_key = root_session_key or source_session_key or state.root_session_key
+            state = self.store.update_state_timestamp(
+                state.model_copy(
+                    update={
+                        "source_session_key": source_session_key or state.source_session_key,
+                        "source_agent_id": source_agent_id or state.source_agent_id,
+                        "delivery_context": delivery_context or state.delivery_context,
+                        "root_session_key": resolved_root_session_key,
+                        "planner_session_key": resolved_root_session_key,
+                        "driver_session_key": resolved_root_session_key,
+                    }
+                ),
+                last_event="run.bound",
+            )
+            refs = refs.model_copy(
+                update={
+                    "source_session_key": source_session_key or refs.source_session_key,
+                    "source_agent_id": source_agent_id or refs.source_agent_id,
+                    "delivery_context": delivery_context or refs.delivery_context,
+                    "root_session_key": resolved_root_session_key,
+                    "planner_session_key": resolved_root_session_key,
+                    "driver_session_key": resolved_root_session_key,
+                }
+            )
+            self.store.write_state(state)
+            self.store.write_run_refs(run_id, refs)
+            self.store.append_event(
+                run_id,
+                RunEvent(
+                    event="run.bound",
+                    runId=run_id,
+                    message="Bound run to a root/source session.",
+                    payload={
+                        "sourceSessionKey": state.source_session_key,
+                        "rootSessionKey": state.root_session_key,
+                    },
+                ),
+            )
+            await self._publish(state)
+            return state
+
     async def create_run(self, request: CreateRunRequest) -> RunState:
         parsed = self._resolve_workflow(request)
         parsed, added_events = ensure_summary_node(parsed)
         run_id = self.store.next_run_id()
         async with self._run_scope(run_id):
-            state, refs = self.store.create_run(parsed, run_id=run_id)
+            state, refs = self.store.create_run(
+                parsed,
+                run_id=run_id,
+                source_session_key=request.source_session_key,
+                source_agent_id=request.source_agent_id,
+                delivery_context=request.delivery_context,
+                root_session_key=request.root_session_key,
+            )
             for event in added_events:
                 self.store.append_event(
                     state.run_id,
@@ -132,10 +228,13 @@ class OpenTaskService:
     async def _tick_run_unlocked(self, run_id: str) -> RunState:
         workflow = self.store.load_workflow_lock(run_id)
         state = self.store.load_state(run_id)
-        refs = self.store.load_openclaw_refs(run_id)
+        refs = self.store.load_run_refs(run_id)
         state, refs = self._normalize_session_keys(state, refs, workflow.definition)
+        state, refs = await self._apply_control_actions(state, refs)
 
         if state.status in {"paused", "completed", "cancelled"}:
+            self.store.write_run_refs(run_id, refs)
+            self.store.write_state(state)
             return state
 
         state = await self._sync_running_nodes(state)
@@ -146,139 +245,85 @@ class OpenTaskService:
         state = await self._dispatch_ready_nodes(state, workflow.definition, refs)
         refs = await self._maybe_request_driver_turn(state, workflow, refs)
         state = await self._finalize_if_terminal(state)
-        self.store.write_openclaw_refs(state.run_id, refs)
+        state, refs = await self._maybe_emit_progress_update(state, refs)
+        self.store.write_run_refs(state.run_id, refs)
         self.store.write_state(state)
         await self._publish(state)
         return state
 
     async def pause_run(self, run_id: str) -> RunState:
-        async with self._run_scope(run_id):
-            state = self.store.load_state(run_id)
-            refs = self.store.load_openclaw_refs(run_id)
-            if refs.cron_job_id:
-                await self.gateway.cron_update(refs.cron_job_id, {"enabled": False})
-            state = self.store.update_state_timestamp(
-                state.model_copy(update={"status": "paused"}),
-                last_event="run.paused",
-            )
-            self.store.write_state(state)
-            self.store.append_event(run_id, RunEvent(event="run.paused", runId=run_id))
-            await self._publish(state)
-            return state
+        return await self._enqueue_control_and_tick(
+            run_id,
+            RunActionRequest(),
+            action="pause",
+        )
 
     async def resume_run(self, run_id: str) -> RunState:
-        async with self._run_scope(run_id):
-            state = self.store.load_state(run_id)
-            refs = self.store.load_openclaw_refs(run_id)
-            if refs.cron_job_id:
-                await self.gateway.cron_update(refs.cron_job_id, {"enabled": True})
-            state = self.store.update_state_timestamp(
-                state.model_copy(update={"status": "running"}),
-                last_event="run.resumed",
-            )
-            self.store.write_state(state)
-            self.store.append_event(run_id, RunEvent(event="run.resumed", runId=run_id))
-            await self._publish(state)
-            return state
+        return await self._enqueue_control_and_tick(
+            run_id,
+            RunActionRequest(),
+            action="resume",
+        )
 
     async def retry_node(self, run_id: str, node_id: str) -> RunState:
-        async with self._run_scope(run_id):
-            state = self.store.load_state(run_id)
-            nodes = []
-            for node in state.nodes:
-                if node.id == node_id:
-                    nodes.append(
-                        node.model_copy(
-                            update={
-                                "status": "pending",
-                                "run_id": None,
-                                "session_key": None,
-                                "child_session_key": None,
-                                "started_at": None,
-                                "completed_at": None,
-                                "notes": [*node.notes, "Retried by operator."],
-                            }
-                        )
-                    )
-                else:
-                    nodes.append(node)
-            state = self.store.update_state_timestamp(
-                state.model_copy(update={"status": "running", "nodes": nodes}),
-                last_event="node.retry",
-            )
-            self.store.write_state(state)
-            self.store.append_event(
-                run_id,
-                RunEvent(event="node.ready", runId=run_id, nodeId=node_id, message="Node retried."),
-            )
-            return await self._tick_run_unlocked(run_id)
+        return await self._enqueue_control_and_tick(
+            run_id,
+            RunActionRequest(nodeId=node_id),
+            action="retry",
+        )
 
     async def skip_node(self, run_id: str, node_id: str) -> RunState:
-        async with self._run_scope(run_id):
-            state = self.store.load_state(run_id)
-            nodes = []
-            for node in state.nodes:
-                if node.id == node_id:
-                    nodes.append(
-                        node.model_copy(
-                            update={
-                                "status": "skipped",
-                                "completed_at": utc_now(),
-                                "notes": [*node.notes, "Skipped by operator."],
-                            }
-                        )
-                    )
-                else:
-                    nodes.append(node)
-            state = self.store.update_state_timestamp(
-                state.model_copy(update={"nodes": nodes}),
-                last_event="node.skipped",
-            )
-            self.store.write_state(state)
-            self.store.append_event(
-                run_id,
-                RunEvent(event="node.skipped", runId=run_id, nodeId=node_id, message="Node skipped."),
-            )
-            return await self._tick_run_unlocked(run_id)
+        return await self._enqueue_control_and_tick(
+            run_id,
+            RunActionRequest(nodeId=node_id),
+            action="skip",
+        )
 
     async def approve_node(self, run_id: str, node_id: str) -> RunState:
-        async with self._run_scope(run_id):
-            state = self.store.load_state(run_id)
-            nodes = []
-            for node in state.nodes:
-                if node.id == node_id:
-                    nodes.append(
-                        node.model_copy(
-                            update={
-                                "status": "completed",
-                                "completed_at": utc_now(),
-                                "notes": [*node.notes, "Approved by operator."],
-                            }
-                        )
-                    )
-                else:
-                    nodes.append(node)
-            state = self.store.update_state_timestamp(
-                state.model_copy(update={"nodes": nodes}),
-                last_event="node.approved",
-            )
-            self.store.write_state(state)
-            self.store.append_event(
-                run_id,
-                RunEvent(
-                    event="node.completed",
-                    runId=run_id,
-                    nodeId=node_id,
-                    message="Approval gate completed by operator.",
-                ),
-            )
-            return await self._tick_run_unlocked(run_id)
+        return await self._enqueue_control_and_tick(
+            run_id,
+            RunActionRequest(nodeId=node_id),
+            action="approve",
+        )
 
     async def force_tick(self, run_id: str) -> RunState:
         async with self._run_scope(run_id):
-            refs = self.store.load_openclaw_refs(run_id)
+            refs = self.store.load_run_refs(run_id)
             if refs.cron_job_id:
                 await self.gateway.cron_run(refs.cron_job_id)
+            return await self._tick_run_unlocked(run_id)
+
+    async def send_message(self, run_id: str, message: str) -> RunState:
+        return await self._enqueue_control_and_tick(
+            run_id,
+            RunActionRequest(message=message),
+            action="send_message",
+        )
+
+    async def patch_cron(self, run_id: str, patch: dict) -> RunState:
+        return await self._enqueue_control_and_tick(
+            run_id,
+            RunActionRequest(patch=patch),
+            action="patch_cron",
+        )
+
+    async def _enqueue_control_and_tick(
+        self,
+        run_id: str,
+        request: RunActionRequest,
+        *,
+        action: str,
+    ) -> RunState:
+        async with self._run_scope(run_id):
+            control = RunControlAction(
+                id=f"{run_id}-{action}-{uuid4().hex[:10]}",
+                action=action,
+                runId=run_id,
+                nodeId=request.node_id,
+                message=request.message,
+                patch=request.patch,
+            )
+            self.store.append_control_action(run_id, control)
             return await self._tick_run_unlocked(run_id)
 
     def subscribe(self, run_id: str) -> asyncio.Queue[dict]:
@@ -305,7 +350,7 @@ class OpenTaskService:
     async def _bootstrap_openclaw(
         self,
         state: RunState,
-        refs: OpenClawRefs,
+        refs: RunRefs,
         parsed,
         planner_prompt: str,
         driver_prompt: str,
@@ -350,7 +395,7 @@ class OpenTaskService:
         )
         refs = refs.model_copy(update={"cron_job_id": cron_job_id})
         state = state.model_copy(update={"cron_job_id": cron_job_id})
-        self.store.write_openclaw_refs(state.run_id, refs)
+        self.store.write_run_refs(state.run_id, refs)
         self.store.write_state(self.store.update_state_timestamp(state, last_event="plan.generated"))
         return self.store.load_state(state.run_id)
 
@@ -369,15 +414,20 @@ class OpenTaskService:
             changed = True
             if status == "ok":
                 artifact_paths = await self._artifact_paths_after_completion(state.run_id, node, result)
-                updated_nodes.append(
-                    node.model_copy(
-                        update={
-                            "status": "completed",
-                            "completed_at": utc_now(),
-                            "notes": [*node.notes, "Completed by OpenClaw run."],
-                            "artifact_paths": artifact_paths,
-                        }
-                    )
+                completed_node = node.model_copy(
+                    update={
+                        "status": "completed",
+                        "completed_at": utc_now(),
+                        "notes": [*node.notes, "Completed by OpenClaw run."],
+                        "artifact_paths": artifact_paths,
+                    }
+                )
+                updated_nodes.append(completed_node)
+                self._write_node_result(
+                    state.run_id,
+                    completed_node,
+                    summary="Node completed.",
+                    payload=result,
                 )
                 self.store.append_event(
                     state.run_id,
@@ -390,14 +440,19 @@ class OpenTaskService:
                     ),
                 )
             else:
-                updated_nodes.append(
-                    node.model_copy(
-                        update={
-                            "status": "failed",
-                            "completed_at": utc_now(),
-                            "notes": [*node.notes, json.dumps(result, ensure_ascii=True)],
-                        }
-                    )
+                failed_node = node.model_copy(
+                    update={
+                        "status": "failed",
+                        "completed_at": utc_now(),
+                        "notes": [*node.notes, json.dumps(result, ensure_ascii=True)],
+                    }
+                )
+                updated_nodes.append(failed_node)
+                self._write_node_result(
+                    state.run_id,
+                    failed_node,
+                    summary="Node failed.",
+                    payload=result,
                 )
                 self.store.append_event(
                     state.run_id,
@@ -417,7 +472,7 @@ class OpenTaskService:
             last_event="node.completed",
         )
 
-    async def _sync_driver_run(self, run_id: str, refs: OpenClawRefs) -> OpenClawRefs:
+    async def _sync_driver_run(self, run_id: str, refs: RunRefs) -> RunRefs:
         if not refs.driver_run_id:
             return refs
 
@@ -449,8 +504,260 @@ class OpenTaskService:
             ),
         )
         next_refs = refs.model_copy(update={"driver_run_id": None})
-        self.store.write_openclaw_refs(run_id, next_refs)
+        self.store.write_run_refs(run_id, next_refs)
         return next_refs
+
+    async def _apply_control_actions(self, state: RunState, refs: RunRefs) -> tuple[RunState, RunRefs]:
+        actions = self.store.load_control_actions(state.run_id)
+        pending_actions = [action for action in actions if action.id not in refs.applied_control_ids]
+        if not pending_actions:
+            return state, refs
+
+        next_state = state
+        next_refs = refs
+        for action in pending_actions:
+            if action.action == "pause":
+                if next_refs.cron_job_id:
+                    await self.gateway.cron_update(next_refs.cron_job_id, {"enabled": False})
+                next_state = self.store.update_state_timestamp(
+                    next_state.model_copy(update={"status": "paused"}),
+                    last_event="run.paused",
+                )
+                self.store.append_event(
+                    state.run_id,
+                    RunEvent(event="run.paused", runId=state.run_id, message="Paused from control queue."),
+                )
+            elif action.action == "resume":
+                if next_refs.cron_job_id:
+                    await self.gateway.cron_update(next_refs.cron_job_id, {"enabled": True})
+                next_state = self.store.update_state_timestamp(
+                    next_state.model_copy(update={"status": "running"}),
+                    last_event="run.resumed",
+                )
+                self.store.append_event(
+                    state.run_id,
+                    RunEvent(event="run.resumed", runId=state.run_id, message="Resumed from control queue."),
+                )
+            elif action.action == "retry":
+                if not action.node_id:
+                    raise ValueError("retry control action requires nodeId")
+                next_state = self._apply_retry(next_state, action.node_id)
+            elif action.action == "skip":
+                if not action.node_id:
+                    raise ValueError("skip control action requires nodeId")
+                next_state = self._apply_skip(next_state, action.node_id)
+            elif action.action == "approve":
+                if not action.node_id:
+                    raise ValueError("approve control action requires nodeId")
+                next_state = self._apply_approve(next_state, action.node_id)
+            elif action.action == "send_message":
+                next_state = await self._apply_send_message(next_state, next_refs, action.message or "")
+            elif action.action == "patch_cron":
+                if next_refs.cron_job_id:
+                    await self.gateway.cron_update(next_refs.cron_job_id, action.patch)
+                self.store.append_event(
+                    state.run_id,
+                    RunEvent(
+                        event="cron.patched",
+                        runId=state.run_id,
+                        message="Patched cron job from control queue.",
+                        payload=action.patch,
+                    ),
+                )
+            next_refs = next_refs.model_copy(
+                update={"applied_control_ids": [*next_refs.applied_control_ids, action.id]}
+            )
+
+        return next_state, next_refs
+
+    def _apply_retry(self, state: RunState, node_id: str) -> RunState:
+        nodes = []
+        for node in state.nodes:
+            if node.id == node_id:
+                nodes.append(
+                    node.model_copy(
+                        update={
+                            "status": "pending",
+                            "run_id": None,
+                            "session_key": None,
+                            "child_session_key": None,
+                            "started_at": None,
+                            "completed_at": None,
+                            "notes": [*node.notes, "Retried from control queue."],
+                        }
+                    )
+                )
+            else:
+                nodes.append(node)
+        next_state = self.store.update_state_timestamp(
+            state.model_copy(update={"status": "running", "nodes": nodes}),
+            last_event="node.retry",
+        )
+        self.store.append_event(
+            state.run_id,
+            RunEvent(event="node.ready", runId=state.run_id, nodeId=node_id, message="Node retried."),
+        )
+        return next_state
+
+    def _apply_skip(self, state: RunState, node_id: str) -> RunState:
+        nodes = []
+        for node in state.nodes:
+            if node.id == node_id:
+                nodes.append(
+                    node.model_copy(
+                        update={
+                            "status": "skipped",
+                            "completed_at": utc_now(),
+                            "notes": [*node.notes, "Skipped from control queue."],
+                        }
+                    )
+                )
+            else:
+                nodes.append(node)
+        next_state = self.store.update_state_timestamp(
+            state.model_copy(update={"nodes": nodes}),
+            last_event="node.skipped",
+        )
+        skipped_node = next(node for node in next_state.nodes if node.id == node_id)
+        self._write_node_result(
+            state.run_id,
+            skipped_node,
+            summary="Node skipped.",
+            payload={"action": "skip"},
+        )
+        self.store.append_event(
+            state.run_id,
+            RunEvent(event="node.skipped", runId=state.run_id, nodeId=node_id, message="Node skipped."),
+        )
+        return next_state
+
+    def _apply_approve(self, state: RunState, node_id: str) -> RunState:
+        nodes = []
+        for node in state.nodes:
+            if node.id == node_id:
+                nodes.append(
+                    node.model_copy(
+                        update={
+                            "status": "completed",
+                            "completed_at": utc_now(),
+                            "notes": [*node.notes, "Approved from control queue."],
+                        }
+                    )
+                )
+            else:
+                nodes.append(node)
+        next_state = self.store.update_state_timestamp(
+            state.model_copy(update={"nodes": nodes}),
+            last_event="node.approved",
+        )
+        approved_node = next(node for node in next_state.nodes if node.id == node_id)
+        self._write_node_result(
+            state.run_id,
+            approved_node,
+            summary="Approval gate completed by operator.",
+            payload={"action": "approve"},
+        )
+        self.store.append_event(
+            state.run_id,
+            RunEvent(
+                event="node.completed",
+                runId=state.run_id,
+                nodeId=node_id,
+                message="Approval gate completed by operator.",
+            ),
+        )
+        return next_state
+
+    async def _apply_send_message(self, state: RunState, refs: RunRefs, message: str) -> RunState:
+        if not refs.delivery_context or not refs.delivery_context.channel or not refs.delivery_context.to:
+            raise ValueError("send_message control action requires deliveryContext.channel and deliveryContext.to")
+        await self.gateway.send_outbound_message(
+            session_key=refs.root_session_key or state.root_session_key or state.driver_session_key or "",
+            channel=refs.delivery_context.channel,
+            to=refs.delivery_context.to,
+            message=message,
+            account_id=refs.delivery_context.account_id,
+            thread_id=refs.delivery_context.thread_id,
+        )
+        next_state = self.store.update_state_timestamp(
+            state.model_copy(
+                update={
+                    "last_progress_message": message,
+                    "last_progress_message_at": utc_now(),
+                }
+            ),
+            last_event="run.message.sent",
+        )
+        self.store.append_event(
+            state.run_id,
+            RunEvent(
+                event="run.message.sent",
+                runId=state.run_id,
+                message="Sent an explicit update to the source delivery context.",
+                payload={"message": message},
+            ),
+        )
+        return next_state
+
+    async def _maybe_emit_progress_update(self, state: RunState, refs: RunRefs) -> tuple[RunState, RunRefs]:
+        if not refs.delivery_context or not refs.delivery_context.channel or not refs.delivery_context.to:
+            return state, refs
+
+        events = self.store.load_events(state.run_id)
+        recent_events = events[refs.last_progress_event_count :]
+        if any(event.event == "run.message.sent" for event in recent_events):
+            return state, refs.model_copy(update={"last_progress_event_count": len(events)})
+        sendable_events = [event for event in recent_events if event.event in PROGRESS_EVENTS]
+        if not sendable_events:
+            return state, refs.model_copy(update={"last_progress_event_count": len(events)})
+
+        message = self._build_progress_message(state, sendable_events)
+        try:
+            await self.gateway.send_outbound_message(
+                session_key=refs.root_session_key or state.root_session_key or state.driver_session_key or "",
+                channel=refs.delivery_context.channel,
+                to=refs.delivery_context.to,
+                message=message,
+                account_id=refs.delivery_context.account_id,
+                thread_id=refs.delivery_context.thread_id,
+            )
+        except OpenClawGatewayError as exc:
+            self.store.append_event(
+                state.run_id,
+                RunEvent(
+                    event="run.progress.failed",
+                    runId=state.run_id,
+                    message=f"Failed to emit progress update: {exc}",
+                ),
+            )
+            return state, refs.model_copy(update={"last_progress_event_count": len(events)})
+
+        progress_event = RunEvent(
+            event="run.progress.sent",
+            runId=state.run_id,
+            message="Sent an automatic progress update to the source delivery context.",
+            payload={"message": message},
+        )
+        self.store.append_event(state.run_id, progress_event)
+        next_state = self.store.update_state_timestamp(
+            state.model_copy(
+                update={
+                    "last_progress_message": message,
+                    "last_progress_message_at": progress_event.timestamp,
+                }
+            ),
+            last_event="run.progress.sent",
+        )
+        next_refs = refs.model_copy(update={"last_progress_event_count": len(events) + 1})
+        return next_state, next_refs
+
+    def _build_progress_message(self, state: RunState, events: list[RunEvent]) -> str:
+        lines = [f"[OpenTask] {state.title} ({state.run_id})", f"Status: {state.status}", ""]
+        for event in events[-4:]:
+            node_part = f" [{event.node_id}]" if event.node_id else ""
+            message = event.message or event.event
+            lines.append(f"- {event.event}{node_part}: {message}")
+        return "\n".join(lines)
 
     async def _apply_driver_directives(
         self,
@@ -522,8 +829,8 @@ class OpenTaskService:
         self,
         state: RunState,
         workflow,
-        refs: OpenClawRefs,
-    ) -> OpenClawRefs:
+        refs: RunRefs,
+    ) -> RunRefs:
         if state.status != "running" or refs.driver_run_id:
             return refs
 
@@ -574,7 +881,7 @@ class OpenTaskService:
                 payload={"runId": resolved_run_id, "response": response},
             ),
         )
-        self.store.write_openclaw_refs(state.run_id, next_refs)
+        self.store.write_run_refs(state.run_id, next_refs)
         return next_refs
 
     def _driver_activity_count(self, run_id: str) -> int:
@@ -602,14 +909,19 @@ class OpenTaskService:
 
             if wait_for.type == "next_tick" and node.started_at:
                 changed = True
-                updated_nodes.append(
-                    node.model_copy(
-                        update={
-                            "status": "completed",
-                            "completed_at": utc_now(),
-                            "notes": [*node.notes, "next_tick condition satisfied."],
-                        }
-                    )
+                completed_node = node.model_copy(
+                    update={
+                        "status": "completed",
+                        "completed_at": utc_now(),
+                        "notes": [*node.notes, "next_tick condition satisfied."],
+                    }
+                )
+                updated_nodes.append(completed_node)
+                self._write_node_result(
+                    state.run_id,
+                    completed_node,
+                    summary="Wait node completed on next tick.",
+                    payload={"waitType": "next_tick"},
                 )
                 self.store.append_event(
                     state.run_id,
@@ -624,14 +936,19 @@ class OpenTaskService:
 
             if wait_for.type == "file_exists" and wait_for.path and (run_dir / wait_for.path).exists():
                 changed = True
-                updated_nodes.append(
-                    node.model_copy(
-                        update={
-                            "status": "completed",
-                            "completed_at": utc_now(),
-                            "notes": [*node.notes, f"Detected file {wait_for.path}."],
-                        }
-                    )
+                completed_node = node.model_copy(
+                    update={
+                        "status": "completed",
+                        "completed_at": utc_now(),
+                        "notes": [*node.notes, f"Detected file {wait_for.path}."],
+                    }
+                )
+                updated_nodes.append(completed_node)
+                self._write_node_result(
+                    state.run_id,
+                    completed_node,
+                    summary=f"Wait node detected file {wait_for.path}.",
+                    payload={"waitType": "file_exists", "path": wait_for.path},
                 )
                 self.store.append_event(
                     state.run_id,
@@ -775,7 +1092,7 @@ class OpenTaskService:
         self,
         state: RunState,
         workflow_definition: WorkflowDefinition,
-        refs: OpenClawRefs,
+        refs: RunRefs,
     ) -> RunState:
         definitions = {node.id: node for node in workflow_definition.nodes}
         workflow_defaults = workflow_definition.defaults
@@ -838,14 +1155,19 @@ class OpenTaskService:
                 changed = True
                 report_path = self._write_summary_report(state.run_id, state)
                 artifact_paths = node.artifact_paths if report_path in node.artifact_paths else [*node.artifact_paths, report_path]
-                updated_nodes.append(
-                    node.model_copy(
-                        update={
-                            "status": "completed",
-                            "completed_at": utc_now(),
-                            "artifact_paths": artifact_paths,
-                        }
-                    )
+                completed_node = node.model_copy(
+                    update={
+                        "status": "completed",
+                        "completed_at": utc_now(),
+                        "artifact_paths": artifact_paths,
+                    }
+                )
+                updated_nodes.append(completed_node)
+                self._write_node_result(
+                    state.run_id,
+                    completed_node,
+                    summary="Summary node completed.",
+                    payload={"artifacts": artifact_paths},
                 )
                 self.store.append_event(
                     state.run_id,
@@ -961,7 +1283,7 @@ class OpenTaskService:
 
         if not changed:
             return state
-        self.store.write_openclaw_refs(state.run_id, refs)
+        self.store.write_run_refs(state.run_id, refs)
         return self.store.update_state_timestamp(
             state.model_copy(update={"nodes": updated_nodes}),
             last_event="node.started",
@@ -972,7 +1294,7 @@ class OpenTaskService:
         if not statuses.issubset(TERMINAL_STATUSES):
             return state
 
-        refs = self.store.load_openclaw_refs(state.run_id)
+        refs = self.store.load_run_refs(state.run_id)
         if refs.cron_job_id:
             await self.gateway.cron_update(refs.cron_job_id, {"enabled": False})
 
@@ -1055,25 +1377,41 @@ class OpenTaskService:
             )
         return self.store.write_node_report(run_id, "summary", "report.md", "\n".join(lines))
 
+    def _write_node_result(self, run_id: str, node: NodeState, *, summary: str, payload: dict) -> None:
+        self.store.write_node_result(
+            run_id,
+            node.id,
+            NodeResult(
+                runId=run_id,
+                nodeId=node.id,
+                status=node.status,
+                summary=summary,
+                artifacts=node.artifact_paths,
+                sessionKey=node.session_key,
+                childSessionKey=node.child_session_key,
+                payload=payload,
+            ),
+        )
+
     def _build_planner_prompt(self, run_id: str, body: str) -> str:
         run_dir = self._run_dir_rel(run_id)
         return (
-            f"You are the planner session for OpenTask run {run_id}.\n"
+            f"You are the root orchestrator session for OpenTask run {run_id}.\n"
             f"Workspace root: {self.project_root}\n"
             f"Run directory: {run_dir}\n"
-            f"Review the frozen workflow at {run_dir}/workflow.lock.md and keep the human-readable objective in mind.\n"
-            "Do not overwrite workflow.lock.md; use it as the frozen execution plan.\n\n"
+            f"Review the frozen workflow at {run_dir}/workflow.lock.md, refs at {run_dir}/refs.json, and pending controls at {run_dir}/control.jsonl.\n"
+            "Do not overwrite workflow.lock.md directly; use it as the frozen execution plan and let OpenTask apply explicit mutations.\n\n"
             f"{body}".strip()
         )
 
     def _build_driver_prompt(self, run_id: str) -> str:
         run_dir = self._run_dir_rel(run_id)
         return (
-            f"You are the idempotent driver for OpenTask run {run_id}.\n"
+            f"You are the idempotent root orchestrator for OpenTask run {run_id}.\n"
             f"Workspace root: {self.project_root}\n"
             f"Run directory: {run_dir}\n"
-            f"On each tick, read {run_dir}/workflow.lock.md, {run_dir}/state.json, and {run_dir}/nodes/* artifacts.\n"
-            f"Never repeat completed nodes. Advance only ready nodes, inspect running nodes, and record all mutations in {run_dir}/events.jsonl.\n"
+            f"On each tick, read {run_dir}/workflow.lock.md, {run_dir}/state.json, {run_dir}/refs.json, {run_dir}/control.jsonl, and {run_dir}/nodes/* artifacts.\n"
+            f"Never repeat completed nodes. Advance only ready nodes, inspect running nodes, and express graph changes through mutation directives that OpenTask records in {run_dir}/events.jsonl.\n"
             f"{driver_mutation_instructions()}"
         )
 
@@ -1142,7 +1480,8 @@ class OpenTaskService:
             f"Run directory: {run_dir}",
             f"Workflow snapshot: {run_dir}/workflow.lock.md",
             f"Run state projection: {run_dir}/state.json",
-            "Do not modify workflow.lock.md, state.json, or events.jsonl directly.",
+            f"Run refs: {run_dir}/refs.json",
+            "Do not modify workflow.lock.md, state.json, refs.json, or events.jsonl directly.",
         ]
 
         dependency_artifacts: list[str] = []
@@ -1236,9 +1575,9 @@ class OpenTaskService:
     def _normalize_session_keys(
         self,
         state: RunState,
-        refs: OpenClawRefs,
+        refs: RunRefs,
         workflow_definition: WorkflowDefinition,
-    ) -> tuple[RunState, OpenClawRefs]:
+    ) -> tuple[RunState, RunRefs]:
         agent_id = workflow_definition.defaults.agent_id
         normalized_nodes: list[NodeState] = []
         nodes_changed = False
@@ -1255,15 +1594,19 @@ class OpenTaskService:
 
         normalized_state = state.model_copy(
             update={
-                "planner_session_key": self._effective_session_key(state.planner_session_key, agent_id),
-                "driver_session_key": self._effective_session_key(state.driver_session_key, agent_id),
+                "source_session_key": self._normalize_optional_session_key(state.source_session_key, agent_id),
+                "root_session_key": self._normalize_optional_session_key(state.root_session_key, agent_id),
+                "planner_session_key": self._normalize_optional_session_key(state.planner_session_key, agent_id),
+                "driver_session_key": self._normalize_optional_session_key(state.driver_session_key, agent_id),
                 "nodes": normalized_nodes if nodes_changed else state.nodes,
             }
         )
         normalized_refs = refs.model_copy(
             update={
-                "planner_session_key": self._effective_session_key(refs.planner_session_key, agent_id),
-                "driver_session_key": self._effective_session_key(refs.driver_session_key, agent_id),
+                "source_session_key": self._normalize_optional_session_key(refs.source_session_key, agent_id),
+                "root_session_key": self._normalize_optional_session_key(refs.root_session_key, agent_id),
+                "planner_session_key": self._normalize_optional_session_key(refs.planner_session_key, agent_id),
+                "driver_session_key": self._normalize_optional_session_key(refs.driver_session_key, agent_id),
                 "node_sessions": {
                     node_id: self._effective_session_key(session_key, agent_id)
                     for node_id, session_key in refs.node_sessions.items()
@@ -1275,8 +1618,13 @@ class OpenTaskService:
     def _effective_session_key(self, session_key: str, agent_id: str) -> str:
         return qualify_agent_session_key(session_key, agent_id)
 
+    def _normalize_optional_session_key(self, session_key: str | None, agent_id: str) -> str | None:
+        if not session_key:
+            return None
+        return self._effective_session_key(session_key, agent_id)
+
     def _run_dir_rel(self, run_id: str) -> str:
-        return Path(".opentask", "runs", run_id).as_posix()
+        return Path("runs", run_id).as_posix()
 
     async def _publish(self, state: RunState) -> None:
         payload = state.model_dump(by_alias=True, exclude_none=True)

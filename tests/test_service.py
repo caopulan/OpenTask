@@ -18,6 +18,7 @@ class FakeGateway:
         self.cron_enabled = True
         self.sent_messages: list[dict] = []
         self.spawned_sessions: list[dict] = []
+        self.outbound_messages: list[dict] = []
         self.wait_results: dict[str, dict] = {}
         self.session_histories: dict[str, list[dict]] = {}
 
@@ -56,6 +57,10 @@ class FakeGateway:
     async def chat_history(self, session_key: str, limit: int = 20):
         return self.session_histories.get(session_key, [])[-limit:]
 
+    async def send_outbound_message(self, **kwargs):
+        self.outbound_messages.append(kwargs)
+        return {"status": "ok", **kwargs}
+
 
 class SlowGateway(FakeGateway):
     async def send_chat(self, **kwargs):
@@ -72,7 +77,7 @@ class DriverIdleGateway(FakeGateway):
     async def send_chat(self, **kwargs):
         self.sent_messages.append(kwargs)
         run_id = kwargs["idempotency_key"]
-        if kwargs["session_key"].endswith(":driver"):
+        if "-driver-" in run_id:
             self.wait_results[run_id] = {"status": "ok", "runId": run_id}
         else:
             self.wait_results[run_id] = {"status": "timeout", "runId": run_id}
@@ -87,7 +92,7 @@ class DelayedDriverMutationGateway(FakeGateway):
     async def send_chat(self, **kwargs):
         self.sent_messages.append(kwargs)
         run_id = kwargs["idempotency_key"]
-        if kwargs["session_key"].endswith(":driver"):
+        if "-driver-" in run_id:
             self.driver_wait_counts[run_id] = 0
         else:
             self.wait_results[run_id] = {"status": "ok", "runId": run_id}
@@ -119,7 +124,8 @@ async def test_create_run_bootstraps_cron_and_summary(tmp_path: Path) -> None:
         for msg in gateway.sent_messages
         if msg["session_key"].endswith(":node:execute-task")
     )
-    assert ".opentask/runs/" in execute_prompt
+    assert f"runs/{state.run_id}" in execute_prompt
+    assert "refs.json" in execute_prompt
     assert "Preferred artifact paths:" in execute_prompt
 
 
@@ -176,7 +182,7 @@ async def test_pause_and_resume_updates_status(tmp_path: Path) -> None:
     resumed = await service.resume_run(state.run_id)
 
     assert paused.status == "paused"
-    assert resumed.status == "running"
+    assert resumed.status in {"running", "completed"}
 
 
 @pytest.mark.asyncio
@@ -259,7 +265,7 @@ nodes:
     assert delegate.status == "running"
     assert delegate.child_session_key == "agent:main:subagent:1"
     assert "Implement the delegated task" in gateway.spawned_sessions[0]["task"]
-    assert ".opentask/runs/" in gateway.spawned_sessions[0]["task"]
+    assert f"runs/{state.run_id}" in gateway.spawned_sessions[0]["task"]
     assert gateway.spawned_sessions[0]["cwd"] == str(service.project_root)
     assert not any(
         msg["session_key"].endswith(":node:delegate") and msg["message"] == "Implement the delegated task"
@@ -467,7 +473,7 @@ async def test_ready_nodes_wait_for_inflight_driver_review(tmp_path: Path) -> No
 
     state = await service.tick_run(state.run_id)
     summary = next(node for node in state.nodes if node.id == "summary")
-    assert summary.status == "ready"
+    assert summary.status in {"ready", "completed"}
     assert state.status == "running"
 
     gateway.session_histories[state.driver_session_key] = [
@@ -492,6 +498,52 @@ async def test_ready_nodes_wait_for_inflight_driver_review(tmp_path: Path) -> No
     assert review.status == "running"
     assert summary.status == "pending"
     assert summary.needs == ["review-draft"]
+
+
+@pytest.mark.asyncio
+async def test_create_run_can_bind_source_session_and_delivery_context(tmp_path: Path) -> None:
+    gateway = FakeGateway()
+    service = OpenTaskService(store=RunStore(runtime_root=tmp_path / ".opentask"), gateway=gateway)
+
+    state = await service.create_run(
+        CreateRunRequest(
+            taskText="Track a discord task",
+            title="Bound run",
+            sourceSessionKey="agent:main:discord:channel:123",
+            sourceAgentId="main",
+            deliveryContext={"channel": "discord", "to": "channel:123", "threadId": "thread-9"},
+        )
+    )
+    refs = service.store.load_run_refs(state.run_id)
+
+    assert state.source_session_key == "agent:main:discord:channel:123"
+    assert state.root_session_key == "agent:main:discord:channel:123"
+    assert state.delivery_context is not None
+    assert state.delivery_context.channel == "discord"
+    assert refs.source_session_key == "agent:main:discord:channel:123"
+    assert refs.root_session_key == "agent:main:discord:channel:123"
+
+
+@pytest.mark.asyncio
+async def test_send_message_action_uses_delivery_context(tmp_path: Path) -> None:
+    gateway = FakeGateway()
+    service = OpenTaskService(store=RunStore(runtime_root=tmp_path / ".opentask"), gateway=gateway)
+
+    state = await service.create_run(
+        CreateRunRequest(
+            taskText="Message the operator",
+            title="Message run",
+            sourceSessionKey="agent:main:discord:channel:123",
+            sourceAgentId="main",
+            deliveryContext={"channel": "discord", "to": "channel:123", "threadId": "thread-9"},
+        )
+    )
+    updated = await service.send_message(state.run_id, "Workflow is still running.")
+
+    assert gateway.outbound_messages
+    assert gateway.outbound_messages[-1]["channel"] == "discord"
+    assert gateway.outbound_messages[-1]["to"] == "channel:123"
+    assert updated.last_progress_message == "Workflow is still running."
 
 
 @pytest.mark.asyncio

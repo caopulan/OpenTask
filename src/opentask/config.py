@@ -37,8 +37,10 @@ def _default_gateway_scopes() -> list[str]:
 
 class Settings(BaseModel):
     project_root: Path = Field(default_factory=lambda: Path.cwd())
-    runtime_root: Path = Field(default_factory=lambda: Path.cwd() / ".opentask")
-    workflows_root: Path = Field(default_factory=lambda: Path.cwd() / "workflows")
+    registry_root: Path = Field(
+        default_factory=lambda: Path(_env_first("OPENTASK_REGISTRY_ROOT") or Path.cwd()).expanduser()
+    )
+    workflows_root: Path = Field(default_factory=lambda: Path(_env_first("OPENTASK_REGISTRY_ROOT") or Path.cwd()).expanduser() / "workflows")
     opentask_agent_id: str = Field(default_factory=lambda: _env_first("OPENTASK_AGENT_ID") or "opentask")
     gateway_url: str = Field(default_factory=lambda: _env_first("OPENTASK_GATEWAY_URL", "OPENCLAW_GATEWAY_URL") or "ws://127.0.0.1:18789")
     gateway_token: str | None = Field(default_factory=lambda: _env_first("OPENTASK_GATEWAY_TOKEN", "OPENCLAW_GATEWAY_TOKEN"))
@@ -66,6 +68,10 @@ class Settings(BaseModel):
     gateway_platform: str = Field(default_factory=lambda: _env_first("OPENTASK_GATEWAY_PLATFORM") or sys.platform)
     gateway_device_family: str = Field(default_factory=lambda: _env_first("OPENTASK_GATEWAY_DEVICE_FAMILY") or "desktop")
     default_tick_timeout_ms: int = 2_000
+
+    @property
+    def runtime_root(self) -> Path:
+        return self.registry_root
 
 
 @lru_cache(maxsize=1)

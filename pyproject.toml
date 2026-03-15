@@ -16,6 +16,7 @@ dependencies = [
 ]
 
 [project.scripts]
+opentask = "opentask.cli:main"
 opentask-api = "opentask.api.main:main"
 
 [build-system]

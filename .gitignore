@@ -16,6 +16,7 @@ cron_ref.md
 
 # OpenTask runtime state
 .opentask/
+runs/
 
 # OpenClaw workspace runtime files
 .openclaw/

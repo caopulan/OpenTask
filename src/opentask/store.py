@@ -5,17 +5,35 @@ from pathlib import Path
 from secrets import token_hex
 
 from .config import get_settings
-from .models import NodeState, OpenClawRefs, ParsedWorkflow, RunEvent, RunState, utc_now
+from .models import (
+    DeliveryContext,
+    NodeResult,
+    NodeState,
+    ParsedWorkflow,
+    RunControlAction,
+    RunEvent,
+    RunRefs,
+    RunState,
+    utc_now,
+)
 from .session_keys import render_agent_session_key
 from .workflow import ensure_relative_paths, normalize_artifact_paths, render_workflow_markdown
 
 
 class RunStore:
-    def __init__(self, runtime_root: Path | None = None) -> None:
+    def __init__(
+        self,
+        registry_root: Path | None = None,
+        *,
+        runtime_root: Path | None = None,
+    ) -> None:
         settings = get_settings()
-        self.runtime_root = runtime_root or settings.runtime_root
-        self.runs_root = self.runtime_root / "runs"
+        self.registry_root = registry_root or runtime_root or settings.registry_root
+        self.runtime_root = self.registry_root
+        self.runs_root = self.registry_root / "runs"
+        self.workflows_root = self.registry_root / "workflows"
         self.runs_root.mkdir(parents=True, exist_ok=True)
+        self.workflows_root.mkdir(parents=True, exist_ok=True)
 
     def list_runs(self) -> list[RunState]:
         runs: list[RunState] = []
@@ -28,7 +46,16 @@ class RunStore:
     def next_run_id(self) -> str:
         return self._next_run_id()
 
-    def create_run(self, workflow: ParsedWorkflow, *, run_id: str | None = None) -> tuple[RunState, OpenClawRefs]:
+    def create_run(
+        self,
+        workflow: ParsedWorkflow,
+        *,
+        run_id: str | None = None,
+        source_session_key: str | None = None,
+        source_agent_id: str | None = None,
+        delivery_context: DeliveryContext | None = None,
+        root_session_key: str | None = None,
+    ) -> tuple[RunState, RunRefs]:
         run_id = run_id or self.next_run_id()
         run_dir = self._run_dir(run_id)
         if (run_dir / "state.json").exists():
@@ -54,32 +81,39 @@ class RunStore:
                 )
             )
 
+        resolved_root_session_key = root_session_key or source_session_key or render_agent_session_key(
+            "session:workflow:{run_id}:root",
+            run_id=run_id,
+            agent_id=workflow.definition.defaults.agent_id,
+        )
         state = RunState(
             runId=run_id,
             workflowId=workflow.definition.workflow_id,
             title=workflow.definition.title,
             status="running",
-            plannerSessionKey=render_agent_session_key(
-                workflow.definition.driver.planner_session_key_template,
-                run_id=run_id,
-                agent_id=workflow.definition.defaults.agent_id,
-            ),
-            driverSessionKey=render_agent_session_key(
-                workflow.definition.driver.session_key_template,
-                run_id=run_id,
-                agent_id=workflow.definition.defaults.agent_id,
-            ),
+            sourceSessionKey=source_session_key,
+            sourceAgentId=source_agent_id,
+            deliveryContext=delivery_context,
+            rootSessionKey=resolved_root_session_key,
+            plannerSessionKey=resolved_root_session_key,
+            driverSessionKey=resolved_root_session_key,
             nodes=nodes,
             lastEvent="run.created",
         )
-        refs = OpenClawRefs(
+        refs = RunRefs(
+            runId=run_id,
+            sourceSessionKey=source_session_key,
+            sourceAgentId=source_agent_id,
+            deliveryContext=delivery_context,
+            rootSessionKey=resolved_root_session_key,
             plannerSessionKey=state.planner_session_key,
             driverSessionKey=state.driver_session_key,
         )
 
         self.write_workflow_lock(run_id, workflow)
         self.write_state(state)
-        self.write_openclaw_refs(run_id, refs)
+        self.write_run_refs(run_id, refs)
+        (run_dir / "control.jsonl").touch()
         self.append_event(
             run_id,
             RunEvent(
@@ -109,14 +143,21 @@ class RunStore:
         path = self._run_dir(state.run_id) / "state.json"
         self._write_json(path, state.model_dump(by_alias=True, exclude_none=True))
 
-    def load_openclaw_refs(self, run_id: str) -> OpenClawRefs:
-        return self._read_json(self._run_dir(run_id) / "openclaw.json", OpenClawRefs)
+    def load_run_refs(self, run_id: str) -> RunRefs:
+        run_dir = self._run_dir(run_id)
+        refs_path = run_dir / "refs.json"
+        if refs_path.exists():
+            return self._read_json(refs_path, RunRefs)
+        return self._read_json(run_dir / "openclaw.json", RunRefs)
 
-    def write_openclaw_refs(self, run_id: str, refs: OpenClawRefs) -> None:
-        self._write_json(
-            self._run_dir(run_id) / "openclaw.json",
-            refs.model_dump(by_alias=True, exclude_none=True),
-        )
+    def write_run_refs(self, run_id: str, refs: RunRefs) -> None:
+        self._write_json(self._run_dir(run_id) / "refs.json", refs.model_dump(by_alias=True, exclude_none=True))
+
+    def load_openclaw_refs(self, run_id: str) -> RunRefs:
+        return self.load_run_refs(run_id)
+
+    def write_openclaw_refs(self, run_id: str, refs: RunRefs) -> None:
+        self.write_run_refs(run_id, refs)
 
     def append_event(self, run_id: str, event: RunEvent) -> None:
         path = self._run_dir(run_id) / "events.jsonl"
@@ -137,10 +178,34 @@ class RunStore:
             return events[-limit:]
         return events
 
+    def append_control_action(self, run_id: str, action: RunControlAction) -> None:
+        path = self._run_dir(run_id) / "control.jsonl"
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(action.model_dump(by_alias=True, exclude_none=True), ensure_ascii=True))
+            handle.write("\n")
+
+    def load_control_actions(self, run_id: str, limit: int | None = None) -> list[RunControlAction]:
+        path = self._run_dir(run_id) / "control.jsonl"
+        if not path.exists():
+            return []
+        actions = [
+            RunControlAction.model_validate(json.loads(line))
+            for line in path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        if limit is not None and limit >= 0:
+            return actions[-limit:]
+        return actions
+
     def write_node_report(self, run_id: str, node_id: str, filename: str, content: str) -> str:
         path = self._run_dir(run_id) / "nodes" / node_id / filename
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
+        return str(path.relative_to(self._run_dir(run_id)))
+
+    def write_node_result(self, run_id: str, node_id: str, result: NodeResult) -> str:
+        path = self._run_dir(run_id) / "nodes" / node_id / "result.json"
+        self._write_json(path, result.model_dump(by_alias=True, exclude_none=True))
         return str(path.relative_to(self._run_dir(run_id)))
 
     def write_support_file(self, run_id: str, filename: str, content: str) -> str:

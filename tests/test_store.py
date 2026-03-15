@@ -16,11 +16,13 @@ def test_run_store_creates_expected_files(tmp_path: Path) -> None:
     assert (run_dir / "workflow.lock.md").exists()
     assert (run_dir / "state.json").exists()
     assert (run_dir / "events.jsonl").exists()
-    assert (run_dir / "openclaw.json").exists()
+    assert (run_dir / "refs.json").exists()
+    assert (run_dir / "control.jsonl").exists()
     assert (run_dir / "nodes" / "execute-task").exists()
     assert refs.driver_session_key.startswith("agent:opentask:session:workflow:")
-    assert refs.driver_session_key.endswith(":driver")
+    assert refs.driver_session_key.endswith(":root")
     assert state.planner_session_key.startswith("agent:opentask:session:workflow:")
+    assert state.root_session_key == refs.root_session_key
     assert state.nodes[0].status == "ready"
 
 
