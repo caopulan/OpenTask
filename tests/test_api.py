@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -101,3 +102,26 @@ async def test_api_returns_gateway_errors_as_502(tmp_path: Path) -> None:
 
     assert response.status_code == 502
     assert "gateway error" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_api_list_runs_tolerates_forward_compatible_runtime_fields(tmp_path: Path) -> None:
+    runtime_root = tmp_path / ".opentask"
+    app = create_app(OpenTaskService(store=RunStore(runtime_root=runtime_root), gateway=FakeGateway()))
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        create_res = await client.post(
+            "/api/runs",
+            json={"taskText": "Inspect this task", "title": "Compat demo"},
+        )
+        run_id = create_res.json()["runId"]
+
+        state_path = runtime_root / "runs" / run_id / "state.json"
+        payload = json.loads(state_path.read_text(encoding="utf-8"))
+        payload["lastDriverTickAt"] = "2026-03-15T11:46:00Z"
+        state_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+        list_res = await client.get("/api/runs")
+
+    assert list_res.status_code == 200
+    assert list_res.json()[0]["runId"] == run_id

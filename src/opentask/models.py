@@ -103,6 +103,12 @@ class ParsedWorkflow(OpenTaskModel):
 
 
 class NodeState(OpenTaskModel):
+    model_config = ConfigDict(
+        populate_by_name=True,
+        extra="ignore",
+        str_strip_whitespace=True,
+    )
+
     id: str
     title: str
     kind: NodeKind
@@ -120,6 +126,12 @@ class NodeState(OpenTaskModel):
 
 
 class RunState(OpenTaskModel):
+    model_config = ConfigDict(
+        populate_by_name=True,
+        extra="ignore",
+        str_strip_whitespace=True,
+    )
+
     run_id: str = Field(alias="runId")
     workflow_id: str = Field(alias="workflowId")
     title: str
@@ -134,6 +146,12 @@ class RunState(OpenTaskModel):
 
 
 class RunEvent(OpenTaskModel):
+    model_config = ConfigDict(
+        populate_by_name=True,
+        extra="ignore",
+        str_strip_whitespace=True,
+    )
+
     event: str
     run_id: str = Field(alias="runId")
     timestamp: str = Field(default_factory=utc_now)
@@ -143,6 +161,12 @@ class RunEvent(OpenTaskModel):
 
 
 class OpenClawRefs(OpenTaskModel):
+    model_config = ConfigDict(
+        populate_by_name=True,
+        extra="ignore",
+        str_strip_whitespace=True,
+    )
+
     planner_session_key: str = Field(alias="plannerSessionKey")
     driver_session_key: str = Field(alias="driverSessionKey")
     cron_job_id: str | None = Field(default=None, alias="cronJobId")
