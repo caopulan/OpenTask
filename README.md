@@ -25,7 +25,7 @@ OpenTask is a web application and runtime for planning, executing, and auditing 
 
 It is built for developers and operators who need inspectable, long-running agent workflows instead of one-shot prompts. You can start from a plain task description or a versioned Markdown workflow, watch the graph evolve in a web UI, and keep driving the run until every node reaches a terminal state.
 
-## Features
+## Features ✨
 
 - Markdown-first workflows with YAML frontmatter
 - File-backed runtime store under `.opentask/runs/<runId>/`
@@ -35,7 +35,7 @@ It is built for developers and operators who need inspectable, long-running agen
 - Cross-process run coordination to prevent duplicate dispatch
 - Recoverable state with `workflow.lock.md`, `state.json`, `events.jsonl`, and `openclaw.json`
 
-## How It Works
+## How It Works ⚙️
 
 OpenTask and OpenClaw split responsibilities cleanly:
 
@@ -191,7 +191,7 @@ Driver sessions can also emit structured mutation blocks to add or rewire nodes 
 
 See the full sample in [workflows/research-demo.task.md](workflows/research-demo.task.md).
 
-## Runtime Layout
+## Runtime Layout 🗂️
 
 Each run lives under `.opentask/runs/<runId>/`:
 
@@ -226,7 +226,7 @@ curl -X POST http://127.0.0.1:8000/api/runs/opentask-1234abcd/actions/tick \
   -d '{}'
 ```
 
-## Configuration
+## Configuration 🔧
 
 Common environment variables:
 
@@ -237,7 +237,7 @@ Common environment variables:
 | `OPENTASK_GATEWAY_DEVICE_IDENTITY_PATH` | `~/.openclaw/identity/device.json` | Device identity file |
 | `OPENTASK_GATEWAY_DEVICE_AUTH_PATH` | `~/.openclaw/identity/device-auth.json` | Device auth token store |
 
-## Documentation
+## Documentation 📚
 
 Start with these repository entry points:
 
@@ -255,7 +255,7 @@ OpenTask is usable, but it is not finished productized infrastructure yet.
 - There is no visual DAG editor yet; the UI is inspect-and-control only.
 - The project does not currently ship a packaged release or installer.
 
-## Contributing
+## Contributing 🤝
 
 Issues and pull requests are welcome. For larger changes, open an issue first so the workflow and storage model stay coherent.
 
@@ -271,6 +271,6 @@ pnpm --dir web build
 
 This repository also expects Conventional Commits and uses `uv` for Python environment and dependency management.
 
-## License
+## License 📄
 
 This repository does not currently include an open source license file. Until a license is added, treat the code as all rights reserved.
