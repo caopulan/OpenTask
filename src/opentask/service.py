@@ -13,6 +13,7 @@ from .models import CreateRunRequest, NodeState, OpenClawRefs, RunEvent, RunStat
 from .openclaw_client import OpenClawClient, OpenClawGatewayError
 from .session_keys import qualify_agent_session_key
 from .store import RunStore
+from .transcript import extract_last_assistant_final_text
 from .workflow import (
     build_starter_workflow,
     ensure_summary_node,
@@ -355,13 +356,14 @@ class OpenTaskService:
                 continue
             changed = True
             if status == "ok":
+                artifact_paths = await self._artifact_paths_after_completion(state.run_id, node, result)
                 updated_nodes.append(
                     node.model_copy(
                         update={
                             "status": "completed",
                             "completed_at": utc_now(),
                             "notes": [*node.notes, "Completed by OpenClaw run."],
-                            "artifact_paths": self._artifact_paths_after_report(state.run_id, node, result),
+                            "artifact_paths": artifact_paths,
                         }
                     )
                 )
@@ -927,11 +929,12 @@ class OpenTaskService:
                 ),
             )
             if gateway_status == "ok":
+                artifact_paths = await self._artifact_paths_after_completion(state.run_id, updated, response)
                 updated_nodes[-1] = updated.model_copy(
                     update={
                         "status": "completed",
                         "completed_at": utc_now(),
-                        "artifact_paths": self._artifact_paths_after_report(state.run_id, updated, response),
+                        "artifact_paths": artifact_paths,
                     }
                 )
 
@@ -967,11 +970,37 @@ class OpenTaskService:
         )
         return final_state
 
-    def _artifact_paths_after_report(self, run_id: str, node: NodeState, payload: dict) -> list[str]:
+    async def _artifact_paths_after_completion(self, run_id: str, node: NodeState, payload: dict) -> list[str]:
         if node.outputs_mode != "report":
             return node.artifact_paths
         run_dir = self.store.runs_root / run_id
         if any((run_dir / artifact).exists() for artifact in node.artifact_paths):
+            return node.artifact_paths
+        session_key = node.child_session_key or node.session_key
+        if session_key:
+            try:
+                history = await self.gateway.chat_history(session_key, limit=100)
+            except OpenClawGatewayError as exc:
+                self.store.append_event(
+                    run_id,
+                    RunEvent(
+                        event="node.history.unavailable",
+                        runId=run_id,
+                        nodeId=node.id,
+                        message=f"Node history unavailable: {exc}",
+                    ),
+                )
+            else:
+                report = extract_last_assistant_final_text(history)
+                if report:
+                    artifact = self.store.write_node_report(run_id, node.id, "report.md", report)
+                    if artifact in node.artifact_paths:
+                        return node.artifact_paths
+                    return [*node.artifact_paths, artifact]
+        return self._artifact_paths_after_payload_summary(run_id, node, payload)
+
+    def _artifact_paths_after_payload_summary(self, run_id: str, node: NodeState, payload: dict) -> list[str]:
+        if node.outputs_mode != "report":
             return node.artifact_paths
         report = "\n".join(
             [

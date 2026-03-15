@@ -9,6 +9,7 @@ from opentask.models import CreateRunRequest
 from opentask.openclaw_client import OpenClawGatewayError
 from opentask.service import OpenTaskService
 from opentask.store import RunStore
+from opentask.transcript import extract_last_assistant_final_text
 from opentask.workflow import build_starter_workflow
 
 
@@ -282,6 +283,54 @@ async def test_existing_node_report_is_not_overwritten_on_completion(tmp_path: P
 
 
 @pytest.mark.asyncio
+async def test_missing_node_report_backfills_final_assistant_text(tmp_path: Path) -> None:
+    gateway = FakeGateway()
+    service = OpenTaskService(store=RunStore(runtime_root=tmp_path / ".opentask"), gateway=gateway)
+
+    state = await service.create_run(CreateRunRequest(taskText="Backfill report", title="Backfill report"))
+    execute = next(node for node in state.nodes if node.id == "execute-task")
+    gateway.session_histories[execute.session_key] = [
+        {"role": "user", "content": [{"type": "text", "text": "Write a concise report."}]},
+        {
+            "role": "assistant",
+            "stopReason": "toolUse",
+            "content": [
+                {"type": "thinking", "thinking": "Drafting the response."},
+                {
+                    "type": "toolCall",
+                    "name": "read",
+                    "arguments": {"file_path": "/tmp/context.md"},
+                },
+            ],
+        },
+        {
+            "role": "toolResult",
+            "content": [{"type": "text", "text": "Loaded supporting context."}],
+        },
+        {
+            "role": "assistant",
+            "stopReason": "stop",
+            "content": [
+                {
+                    "type": "text",
+                    "text": "# Execution Report\n\n- Result: completed\n- Notes: used transcript fallback\n",
+                    "textSignature": '{"v":1,"phase":"final_answer"}',
+                }
+            ],
+        },
+    ]
+
+    state = await service.tick_run(state.run_id)
+    execute = next(node for node in state.nodes if node.id == "execute-task")
+    report_path = tmp_path / ".opentask" / "runs" / state.run_id / "nodes" / "execute-task" / "report.md"
+
+    assert execute.status == "completed"
+    assert report_path.read_text(encoding="utf-8") == (
+        "# Execution Report\n\n- Result: completed\n- Notes: used transcript fallback"
+    )
+
+
+@pytest.mark.asyncio
 async def test_summary_artifact_path_is_not_duplicated(tmp_path: Path) -> None:
     gateway = FakeGateway()
     service = OpenTaskService(store=RunStore(runtime_root=tmp_path / ".opentask"), gateway=gateway)
@@ -407,3 +456,38 @@ async def test_run_can_resume_from_runtime_store_after_restart(tmp_path: Path) -
     recovered = await restarted.tick_run(created.run_id)
     assert recovered.run_id == created.run_id
     assert recovered.status == "completed"
+
+
+def test_extract_last_assistant_final_text_ignores_internal_blocks() -> None:
+    history = [
+        {"role": "user", "content": [{"type": "text", "text": "Summarize the result."}]},
+        {
+            "role": "assistant",
+            "stopReason": "toolUse",
+            "content": [
+                {"type": "thinking", "thinking": "Need supporting facts first."},
+                {
+                    "type": "toolCall",
+                    "name": "read",
+                    "arguments": {"file_path": "/tmp/source.md"},
+                },
+            ],
+        },
+        {
+            "role": "toolResult",
+            "content": [{"type": "text", "text": "Source contents"}],
+        },
+        {
+            "role": "assistant",
+            "stopReason": "stop",
+            "content": [
+                {
+                    "type": "text",
+                    "text": "[[reply_to_current]] Final report body",
+                    "textSignature": '{"v":1,"phase":"final_answer"}',
+                }
+            ],
+        },
+    ]
+
+    assert extract_last_assistant_final_text(history) == "Final report body"
