@@ -14,6 +14,13 @@ export type WaitFor = {
   path?: string | null;
 };
 
+export type DeliveryContext = {
+  channel?: string | null;
+  to?: string | null;
+  accountId?: string | null;
+  threadId?: string | null;
+};
+
 export type RunNode = {
   id: string;
   title: string;
@@ -36,12 +43,18 @@ export type RunState = {
   workflowId: string;
   title: string;
   status: RunStatus;
-  plannerSessionKey: string;
-  driverSessionKey: string;
+  sourceSessionKey?: string | null;
+  sourceAgentId?: string | null;
+  deliveryContext?: DeliveryContext | null;
+  rootSessionKey?: string | null;
+  plannerSessionKey?: string | null;
+  driverSessionKey?: string | null;
   cronJobId?: string | null;
   updatedAt: string;
   createdAt: string;
   lastEvent?: string | null;
+  lastProgressMessage?: string | null;
+  lastProgressMessageAt?: string | null;
   nodes: RunNode[];
 };
 
@@ -59,4 +72,8 @@ export type CreateRunInput = {
   taskText?: string;
   workflowPath?: string;
   workflowMarkdown?: string;
+  sourceSessionKey?: string;
+  sourceAgentId?: string;
+  deliveryContext?: DeliveryContext;
+  rootSessionKey?: string;
 };

@@ -4,107 +4,158 @@
   <img src="web/src/assets/hero.png" alt="OpenTask" width="220">
 </p>
 
-<p align="center">File-backed workflow orchestration for long-running OpenClaw sessions.</p>
+<p align="center">OpenClaw-native workflow registry, control plane, and visualization layer.</p>
 
 <p align="center">
   English ·
   <a href="README.ZH.md">中文</a> ·
-  <a href="QUICKSTART.md">Quick Start Tutorial</a>
+  <a href="QUICKSTART.md">Quick Start</a> ·
+  <a href="docs/registry-spec.md">Registry Spec</a>
 </p>
 
-<p align="center">
-  <a href="#installation">Installation</a> •
-  <a href="#quick-start">Quick Start</a> •
-  <a href="QUICKSTART.md">Tutorial</a> •
-  <a href="#workflow-format">Workflow Format</a> •
-  <a href="#api">API</a> •
-  <a href="#documentation">Documentation</a> •
-  <a href="#current-limitations">Current Limitations</a>
-</p>
+OpenTask is built around a simple split:
 
-<p align="center">
-  <img src="https://img.shields.io/badge/python-3.12%2B-3776AB?logo=python&logoColor=white" alt="Python 3.12+">
-  <img src="https://img.shields.io/badge/backend-FastAPI-009688?logo=fastapi&logoColor=white" alt="FastAPI backend">
-  <img src="https://img.shields.io/badge/runtime-OpenClaw-111111" alt="OpenClaw runtime">
-  <img src="https://img.shields.io/badge/status-experimental-orange" alt="Experimental status">
-</p>
+- OpenClaw executes the work.
+- OpenTask keeps the workflow registry, run state projection, audit trail, and control UI.
 
-OpenTask is a web application and runtime for planning, executing, and auditing agent workflows on top of OpenClaw. It keeps the workflow DAG, run state projection, and append-only event log on disk, while OpenClaw handles execution facts such as sessions, child sessions, and cron-driven turns.
+The workflow must keep running even when the OpenTask backend or frontend is down. The shared source of truth is a registry directory containing versioned workflows and run folders under `runs/`.
 
-It is built for developers and operators who need inspectable, long-running agent workflows instead of one-shot prompts. You can start from a plain task description or a versioned Markdown workflow, watch the graph evolve in a web UI, and keep driving the run until every node reaches a terminal state.
+## What It Ships
 
-Prefer a hands-on walkthrough first? Jump to [QUICKSTART.md](QUICKSTART.md).
+- A registry contract for workflows, runs, refs, events, controls, and node outputs
+- A Python core library and `opentask` CLI for deterministic state changes
+- A shared OpenClaw skill at [skills/opentask/SKILL.md](skills/opentask/SKILL.md)
+- A FastAPI backend that indexes the registry and exposes control APIs
+- A React control plane for DAG visualization and explicit operator actions
 
-## Features ✨
+## Architecture
 
-- Markdown-first workflows with YAML frontmatter
-- File-backed runtime store under `.opentask/runs/<runId>/`
-- Real OpenClaw integration for planner, driver, node, and subagent sessions
-- Live graph mutation through driver directives
-- Web UI for run list, DAG view, timeline, and node controls
-- Cross-process run coordination to prevent duplicate dispatch
-- Recoverable state with `workflow.lock.md`, `state.json`, `events.jsonl`, and `openclaw.json`
+### Execution Plane
 
-## How It Works ⚙️
+OpenClaw remains the execution plane.
 
-OpenTask and OpenClaw split responsibilities cleanly:
+- The current Discord or channel session becomes the root orchestrator session.
+- Subtasks are delegated through `sessions_spawn`.
+- Cron keeps waking the root session until the workflow reaches a terminal state.
+- Internal orchestration messages run without delivery.
+- User-visible updates go out as explicit progress messages.
 
-| Layer | Owned by OpenTask | Owned by OpenClaw |
-| --- | --- | --- |
-| Workflow model | DAG definition, workflow lock, node dependencies | None |
-| Runtime state | `state.json`, `events.jsonl`, node artifacts | None |
-| Execution | Dispatch policy, driver directive application, operator actions | Sessions, child sessions, cron jobs, run completion |
-| UI | Run list, graph, timeline, controls | None |
+### Control Plane
 
-That split lets you keep a human-readable audit trail on disk without giving up OpenClaw's session and cron machinery.
+OpenTask becomes read-mostly control plane.
+
+- The backend indexes the registry and exposes REST plus WebSocket endpoints.
+- The web UI renders runs, DAGs, timeline events, node artifacts, and session bindings.
+- Operator actions are written as explicit controls, not ad hoc in-memory mutations.
+
+## Registry Layout
+
+See the formal spec in [docs/registry-spec.md](docs/registry-spec.md).
+
+```text
+<registry-root>/
+  workflows/
+    *.task.md
+  runs/
+    <runId>/
+      workflow.lock.md
+      state.json
+      refs.json
+      events.jsonl
+      control.jsonl
+      nodes/
+        <nodeId>/
+          report.md
+          result.json
+```
+
+Key files:
+
+- `state.json`: UI projection
+- `refs.json`: OpenClaw runtime bindings such as source session, root session, cron, child sessions
+- `events.jsonl`: append-only audit trail
+- `control.jsonl`: explicit operator or UI control requests
 
 ## Installation
 
-### Prerequisites
+Prerequisites:
 
 - Python 3.12+
 - `uv`
 - Node.js and `pnpm`
 - A running OpenClaw Gateway
-- An OpenClaw agent workspace for this repository
+- An OpenClaw agent workspace pointing at this repository
 
-### Backend and frontend dependencies
+Install dependencies:
 
 ```bash
 uv sync --dev
 pnpm --dir web install
 ```
 
-### OpenClaw workspace setup
-
-By default OpenTask targets the OpenClaw agent `opentask`. Point that agent's workspace at this repository, or override it with `OPENTASK_AGENT_ID`.
-
-OpenTask automatically reuses local device auth material from:
-
-- `~/.openclaw/identity/device.json`
-- `~/.openclaw/identity/device-auth.json`
-
-Override them only if needed:
+Common environment variables:
 
 ```bash
+export OPENTASK_REGISTRY_ROOT=$PWD
 export OPENTASK_GATEWAY_URL=ws://127.0.0.1:18789
 export OPENTASK_AGENT_ID=opentask
-export OPENTASK_GATEWAY_DEVICE_IDENTITY_PATH=/path/to/device.json
-export OPENTASK_GATEWAY_DEVICE_AUTH_PATH=/path/to/device-auth.json
 ```
 
-## Quick Start
+OpenTask automatically reuses local OpenClaw device auth from `~/.openclaw/identity/`.
 
-Follow [QUICKSTART.md](QUICKSTART.md) for the full operator tutorial. The short version:
+## Preferred Workflow
 
-### 1. Install project dependencies
+The primary path is OpenClaw-native:
+
+1. The user asks for a long-running task in the current Discord or channel conversation.
+2. The OpenClaw agent uses [skills/opentask/SKILL.md](skills/opentask/SKILL.md).
+3. The agent resolves the current `sessionKey` and `deliveryContext`.
+4. The agent creates or validates a workflow file under `workflows/`.
+5. The agent calls the `opentask` CLI to create a run bound to that session.
+6. OpenClaw cron and subagents continue execution from there.
+
+Manual equivalent:
 
 ```bash
-uv sync --dev
-pnpm --dir web install
+uv run opentask run create \
+  --workflow-path workflows/research-demo.task.md \
+  --source-session-key 'agent:main:discord:channel:1234567890' \
+  --source-agent-id main \
+  --delivery-context-json '{"channel":"discord","to":"channel:1234567890"}'
 ```
 
-### 2. Start the backend
+## Debug and Operator Surfaces
+
+### CLI
+
+Validate a workflow:
+
+```bash
+uv run opentask workflow validate workflows/research-demo.task.md
+```
+
+Pause or resume:
+
+```bash
+uv run opentask control pause <runId>
+uv run opentask control resume <runId>
+```
+
+Send an explicit progress update:
+
+```bash
+uv run opentask control send_message <runId> --message "Still running."
+```
+
+Patch cron:
+
+```bash
+uv run opentask control patch_cron <runId> --patch-json '{"enabled": true}'
+```
+
+### Backend
+
+Start the backend:
 
 ```bash
 uv run opentask-api
@@ -112,179 +163,46 @@ uv run opentask-api
 
 The API listens on `http://127.0.0.1:8000`.
 
-### 3. Start the web UI
+### Web UI
+
+Start the frontend:
 
 ```bash
 pnpm --dir web dev
 ```
 
-The Vite app listens on `http://127.0.0.1:5174/` and proxies `/api` plus WebSocket traffic to the backend.
+The Vite app listens on `http://127.0.0.1:5174/`.
 
-### 4. Create a run from free-form task text
+The UI is a control plane, not the primary task-start surface. It is best used for:
 
-```bash
-curl -X POST http://127.0.0.1:8000/api/runs \
-  -H 'content-type: application/json' \
-  -d '{
-    "title": "First run",
-    "taskText": "Review AGENTS.md and write a short report about repo conventions."
-  }'
-```
-
-Example response:
-
-```json
-{
-  "runId": "opentask-1234abcd",
-  "status": "running",
-  "workflowId": "first-run"
-}
-```
-
-### 5. Inspect runs and events
-
-```bash
-curl http://127.0.0.1:8000/api/runs
-curl http://127.0.0.1:8000/api/runs/opentask-1234abcd/events
-```
-
-### 6. Launch a run from a workflow file
-
-```bash
-curl -X POST http://127.0.0.1:8000/api/runs \
-  -H 'content-type: application/json' \
-  -d '{
-    "workflowPath": "workflows/research-demo.task.md"
-  }'
-```
-
-## Workflow Format
-
-Versioned workflows live in `workflows/*.task.md` and use Markdown plus YAML frontmatter.
-
-Minimal example:
-
-```md
----
-workflowId: quick-demo
-title: Quick demo
-defaults:
-  agentId: opentask
-nodes:
-  - id: execute-task
-    title: Execute task
-    kind: session_turn
-    needs: []
-    prompt: Write a short report.
-    outputs:
-      mode: report
-      requiredFiles:
-        - nodes/execute-task/report.md
-  - id: summary
-    title: Summary
-    kind: summary
-    needs:
-      - execute-task
-    prompt: Summarize the run.
-    outputs:
-      mode: report
-      requiredFiles:
-        - nodes/summary/report.md
----
-```
-
-Supported node kinds:
-
-- `session_turn`
-- `subagent`
-- `wait`
-- `approval`
-- `summary`
-
-Supported output modes:
-
-- `notify`
-- `report`
-
-Driver sessions can also emit structured mutation blocks to add or rewire nodes while a run is active.
-
-See the full sample in [workflows/research-demo.task.md](workflows/research-demo.task.md).
-
-## Runtime Layout 🗂️
-
-Each run lives under `.opentask/runs/<runId>/`:
-
-| Path | Purpose |
-| --- | --- |
-| `workflow.lock.md` | Frozen workflow snapshot for this run |
-| `state.json` | Current state projection used by the API and UI |
-| `events.jsonl` | Append-only audit trail |
-| `openclaw.json` | Planner, driver, cron, and node session references |
-| `driver.context.md` | Latest driver review prompt snapshot |
-| `nodes/<nodeId>/` | Reports and node-specific artifacts |
-| `.run.lock` | Cross-process coordination lock for that run |
-
-The runtime store is intentionally git-ignored.
+- viewing the registry-backed run list
+- inspecting DAG structure and node artifacts
+- reviewing audit events
+- issuing explicit actions such as `pause`, `resume`, `retry`, `skip`, `approve`, `send_message`, and `patch_cron`
 
 ## API
 
-Available endpoints:
+Public endpoints:
 
-- `POST /api/runs`
 - `GET /api/runs`
 - `GET /api/runs/{runId}`
 - `GET /api/runs/{runId}/events`
-- `POST /api/runs/{runId}/actions/{pause|resume|retry|skip|approve|tick}`
+- `POST /api/runs/{runId}/actions/{pause|resume|retry|skip|approve|send_message|patch_cron|tick}`
 - `WS /api/runs/{runId}/stream`
 
-Example operator action:
-
-```bash
-curl -X POST http://127.0.0.1:8000/api/runs/opentask-1234abcd/actions/tick \
-  -H 'content-type: application/json' \
-  -d '{}'
-```
-
-## Configuration 🔧
-
-Common environment variables:
-
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `OPENTASK_GATEWAY_URL` | `ws://127.0.0.1:18789` | OpenClaw Gateway URL |
-| `OPENTASK_AGENT_ID` | `opentask` | Agent/workspace that owns run sessions |
-| `OPENTASK_GATEWAY_DEVICE_IDENTITY_PATH` | `~/.openclaw/identity/device.json` | Device identity file |
-| `OPENTASK_GATEWAY_DEVICE_AUTH_PATH` | `~/.openclaw/identity/device-auth.json` | Device auth token store |
+`POST /api/runs` still exists, but it is now a debug and operator wrapper around the same core library. It is not the preferred production entry point.
 
 ## Documentation
 
-Start with these repository entry points:
-
-- [README.md](README.md) for setup and operating model
-- [README.ZH.md](README.ZH.md) for the Chinese overview
-- [QUICKSTART.md](QUICKSTART.md) for the fastest end-to-end tutorial
-- [QUICKSTART.ZH.md](QUICKSTART.ZH.md) for the Chinese tutorial
-- [AGENTS.md](AGENTS.md) for repository working rules
-- [AGENTS.ZH.md](AGENTS.ZH.md) for the Chinese working rules
-- [workflows/research-demo.task.md](workflows/research-demo.task.md) for a complete workflow example
-- [workflows/research-demo.task.ZH.md](workflows/research-demo.task.ZH.md) for the Chinese workflow example
-- [web/README.md](web/README.md) for frontend-specific notes
-- [web/README.ZH.md](web/README.ZH.md) for the Chinese frontend notes
-- [tests/test_service.py](tests/test_service.py) for orchestration behavior and regression coverage
+- [QUICKSTART.md](QUICKSTART.md)
+- [docs/registry-spec.md](docs/registry-spec.md)
+- [skills/opentask/SKILL.md](skills/opentask/SKILL.md)
+- [workflows/research-demo.task.md](workflows/research-demo.task.md)
+- [web/README.md](web/README.md)
 
 ## Current Limitations
 
-OpenTask is usable, but it is not finished productized infrastructure yet.
-
-- It expects a running OpenClaw Gateway and a configured local agent workspace.
-- The runtime store is local filesystem based, not distributed storage.
-- There is no visual DAG editor yet; the UI is inspect-and-control only.
-- The project does not currently ship a packaged release or installer.
-
-## Contributing 🤝
-
-Issues and pull requests are welcome. For larger changes, open an issue first so the workflow and storage model stay coherent.
-
-## License
-
-No license file is published yet. Until one is added, treat this repository as all rights reserved.
+- The preferred start path assumes the OpenClaw agent can resolve the current session and delivery context before calling the CLI.
+- Registry locking is local filesystem locking, not distributed locking.
+- The frontend is intentionally read-mostly and does not offer free-form DAG editing.
+- This repository still ships API debug entrypoints because they are useful for operators and tests.

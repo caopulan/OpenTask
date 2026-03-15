@@ -17,8 +17,8 @@ function formatTime(value?: string | null): string {
   if (!value) {
     return "n/a";
   }
-  return new Intl.DateTimeFormat("zh-CN", {
-    month: "2-digit",
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
@@ -80,7 +80,7 @@ function graphFromRun(run: RunState | undefined): { nodes: Node[]; edges: Edge[]
     columnNodes.forEach((node, index) => {
       flowNodes.push({
         id: node.id,
-        position: { x: depth * 320, y: index * 180 },
+        position: { x: depth * 330, y: index * 180 },
         data: {
           label: (
             <div className={`graph-card ${statusTone(node.status)}`}>
@@ -119,10 +119,11 @@ function App() {
   const queryClient = useQueryClient();
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
-  const [title, setTitle] = useState("OpenTask demo");
-  const [taskText, setTaskText] = useState(
-    "Plan and execute a small workflow, capture artifacts, and summarize the result.",
-  );
+  const [outboundMessage, setOutboundMessage] = useState("OpenTask control-plane ping.");
+  const [cronPatch, setCronPatch] = useState('{\n  "enabled": true\n}');
+  const [title, setTitle] = useState("Debug OpenTask run");
+  const [taskText, setTaskText] = useState("Inspect the repo and write a short report.");
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const runsQuery = useQuery({
     queryKey: ["runs"],
@@ -177,16 +178,20 @@ function App() {
   });
 
   const actionMutation = useMutation({
-    mutationFn: async (payload: { action: string; nodeId?: string }) => {
+    mutationFn: async (payload: { action: string; nodeId?: string; message?: string; patch?: Record<string, unknown> }) => {
       if (!activeRunId) {
         throw new Error("No run selected.");
       }
-      return runAction(activeRunId, payload.action, payload.nodeId ? { nodeId: payload.nodeId } : undefined);
+      return runAction(activeRunId, payload.action, payload);
     },
     onSuccess: (run) => {
+      setActionError(null);
       queryClient.setQueryData(["run", run.runId], run);
       queryClient.invalidateQueries({ queryKey: ["runs"] });
       queryClient.invalidateQueries({ queryKey: ["events", run.runId] });
+    },
+    onError: (error) => {
+      setActionError(error instanceof Error ? error.message : "Action failed.");
     },
   });
 
@@ -194,16 +199,26 @@ function App() {
   const selectedNode = activeRun?.nodes.find((node) => node.id === selectedNodeId) ?? null;
   const graph = useMemo(() => graphFromRun(activeRun), [activeRun]);
 
+  function submitCronPatch() {
+    try {
+      const patch = JSON.parse(cronPatch) as Record<string, unknown>;
+      actionMutation.mutate({ action: "patch_cron", patch });
+    } catch {
+      setActionError("Cron patch must be valid JSON.");
+    }
+  }
+
   return (
     <div className="app-shell">
       <div className="ambient ambient-left" />
       <div className="ambient ambient-right" />
       <header className="masthead">
         <div>
-          <p className="eyebrow">workflow control room</p>
+          <p className="eyebrow">registry-driven control plane</p>
           <h1>OpenTask</h1>
           <p className="lead">
-            用一份 markdown workflow 驱动 OpenClaw，把运行状态、节点产物和人工控制放回同一块界面。
+            OpenClaw executes the workflow. OpenTask indexes the registry, renders the DAG, and emits explicit control
+            actions without becoming the only runtime.
           </p>
         </div>
         <div className="status-row">
@@ -218,43 +233,21 @@ function App() {
         </div>
       </header>
 
-      <div className="workspace-grid">
+      <div className="workspace-grid control-plane-grid">
         <aside className="panel launch-panel">
           <div className="panel-head">
             <div>
-              <span className="eyebrow">launch</span>
-              <h2>Start a run</h2>
+              <span className="eyebrow">registry</span>
+              <h2>Runs</h2>
             </div>
-            <button
-              className="primary-btn"
-              disabled={createMutation.isPending}
-              onClick={() => createMutation.mutate()}
-            >
-              {createMutation.isPending ? "Launching..." : "Launch run"}
-            </button>
+            <span className="muted">{runsQuery.isFetching ? "syncing" : "watching"}</span>
           </div>
 
-          <label className="field">
-            <span>Title</span>
-            <input value={title} onChange={(event) => setTitle(event.target.value)} />
-          </label>
-          <label className="field">
-            <span>Task</span>
-            <textarea value={taskText} onChange={(event) => setTaskText(event.target.value)} rows={7} />
-          </label>
-
-          <div className="panel-head compact">
-            <div>
-              <span className="eyebrow">runs</span>
-              <h2>Recent runs</h2>
-            </div>
-            <span className="muted">{runsQuery.isFetching ? "syncing" : "live"}</span>
-          </div>
           <div className="run-list">
             {runsQuery.data?.map((run) => (
               <button
                 key={run.runId}
-                className={`run-card ${selectedRunId === run.runId ? "selected" : ""}`}
+                className={`run-card ${activeRunId === run.runId ? "selected" : ""}`}
                 onClick={() => {
                   setSelectedRunId(run.runId);
                   setSelectedNodeId(null);
@@ -265,19 +258,44 @@ function App() {
                   <span className={`status-chip ${statusTone(run.status)}`}>{run.status}</span>
                 </div>
                 <span className="run-meta">{run.workflowId}</span>
+                <span className="run-meta">{run.sourceSessionKey ?? run.rootSessionKey ?? "unbound session"}</span>
                 <span className="run-meta">
                   updated {formatTime(run.updatedAt)} · {run.nodes.length} nodes
                 </span>
               </button>
             ))}
           </div>
+
+          <section className="debug-section">
+            <div className="panel-head compact">
+              <div>
+                <span className="eyebrow">debug only</span>
+                <h2>Create via API</h2>
+              </div>
+              <button
+                className="primary-btn"
+                disabled={createMutation.isPending}
+                onClick={() => createMutation.mutate()}
+              >
+                {createMutation.isPending ? "Creating..." : "Create"}
+              </button>
+            </div>
+            <label className="field">
+              <span>Title</span>
+              <input value={title} onChange={(event) => setTitle(event.target.value)} />
+            </label>
+            <label className="field">
+              <span>Task</span>
+              <textarea value={taskText} onChange={(event) => setTaskText(event.target.value)} rows={5} />
+            </label>
+          </section>
         </aside>
 
         <main className="panel flow-panel">
           <div className="panel-head">
             <div>
-              <span className="eyebrow">graph</span>
-              <h2>{activeRun?.title ?? "Pick a run"}</h2>
+              <span className="eyebrow">workflow graph</span>
+              <h2>{activeRun?.title ?? "Select a run"}</h2>
             </div>
             <div className="control-strip">
               <button
@@ -315,7 +333,7 @@ function App() {
             ) : (
               <div className="empty-state">
                 <h3>No run selected</h3>
-                <p>Launch a run from the left panel to populate the graph and live timeline.</p>
+                <p>Pick a run from the registry index. OpenTask now treats API creation as a debug surface only.</p>
               </div>
             )}
           </div>
@@ -324,7 +342,7 @@ function App() {
             <div className="panel-head compact">
               <div>
                 <span className="eyebrow">timeline</span>
-                <h2>Recent events</h2>
+                <h2>Audit trail</h2>
               </div>
               <span className="muted">{eventsQuery.data?.length ?? 0} events</span>
             </div>
@@ -346,77 +364,137 @@ function App() {
           </section>
         </main>
 
-        <aside className="panel detail-panel">
+        <aside className="panel detail-panel control-panel">
           <div className="panel-head">
             <div>
-              <span className="eyebrow">inspector</span>
-              <h2>{selectedNode?.title ?? "Select a node"}</h2>
+              <span className="eyebrow">control</span>
+              <h2>{selectedNode?.title ?? activeRun?.title ?? "No run"}</h2>
             </div>
-            {selectedNode ? <span className={`status-chip ${statusTone(selectedNode.status)}`}>{selectedNode.status}</span> : null}
+            {activeRun ? <span className={`status-chip ${statusTone(activeRun.status)}`}>{activeRun.status}</span> : null}
           </div>
 
-          {selectedNode ? (
+          {activeRun ? (
             <div className="detail-stack">
               <div className="detail-card">
-                <span className="detail-label">Kind</span>
-                <strong>{selectedNode.kind}</strong>
+                <span className="detail-label">Source session</span>
+                <strong>{activeRun.sourceSessionKey ?? "not bound"}</strong>
               </div>
               <div className="detail-card">
-                <span className="detail-label">Dependencies</span>
-                <strong>{selectedNode.needs.length ? selectedNode.needs.join(", ") : "entry"}</strong>
+                <span className="detail-label">Root session</span>
+                <strong>{activeRun.rootSessionKey ?? activeRun.driverSessionKey ?? "n/a"}</strong>
               </div>
               <div className="detail-card">
-                <span className="detail-label">Output mode</span>
-                <strong>{selectedNode.outputsMode}</strong>
+                <span className="detail-label">Delivery</span>
+                <strong>
+                  {activeRun.deliveryContext?.channel && activeRun.deliveryContext?.to
+                    ? `${activeRun.deliveryContext.channel} · ${activeRun.deliveryContext.to}`
+                    : "none"}
+                </strong>
               </div>
               <div className="detail-card">
-                <span className="detail-label">Session</span>
-                <strong>{selectedNode.childSessionKey ?? selectedNode.sessionKey ?? "pending"}</strong>
+                <span className="detail-label">Cron job</span>
+                <strong>{activeRun.cronJobId ?? "n/a"}</strong>
               </div>
               <div className="detail-card">
-                <span className="detail-label">Artifacts</span>
-                <ul className="artifact-list">
-                  {selectedNode.artifactPaths.length ? (
-                    selectedNode.artifactPaths.map((artifact) => <li key={artifact}>{artifact}</li>)
-                  ) : (
-                    <li>none yet</li>
-                  )}
-                </ul>
+                <span className="detail-label">Last outbound update</span>
+                <strong>{activeRun.lastProgressMessage ?? "none sent"}</strong>
+                <span className="detail-muted">{formatTime(activeRun.lastProgressMessageAt)}</span>
               </div>
-              <div className="detail-actions">
+
+              <div className="composer-card">
+                <span className="detail-label">Send explicit update</span>
+                <textarea
+                  rows={4}
+                  value={outboundMessage}
+                  onChange={(event) => setOutboundMessage(event.target.value)}
+                />
                 <button
-                  className="ghost-btn"
-                  disabled={actionMutation.isPending}
-                  onClick={() => actionMutation.mutate({ action: "retry", nodeId: selectedNode.id })}
+                  className="primary-btn"
+                  disabled={actionMutation.isPending || !activeRun.deliveryContext?.to}
+                  onClick={() => actionMutation.mutate({ action: "send_message", message: outboundMessage })}
                 >
-                  Retry
+                  Send message
                 </button>
-                <button
-                  className="ghost-btn"
-                  disabled={actionMutation.isPending}
-                  onClick={() => actionMutation.mutate({ action: "skip", nodeId: selectedNode.id })}
-                >
-                  Skip
+              </div>
+
+              <div className="composer-card">
+                <span className="detail-label">Patch cron</span>
+                <textarea rows={5} value={cronPatch} onChange={(event) => setCronPatch(event.target.value)} />
+                <button className="ghost-btn" disabled={actionMutation.isPending} onClick={submitCronPatch}>
+                  Apply cron patch
                 </button>
-                {selectedNode.kind === "approval" ? (
-                  <button
-                    className="primary-btn"
-                    disabled={actionMutation.isPending}
-                    onClick={() => actionMutation.mutate({ action: "approve", nodeId: selectedNode.id })}
-                  >
-                    Approve gate
-                  </button>
-                ) : null}
               </div>
-              <div className="note-list">
-                {(selectedNode.notes.length ? selectedNode.notes : ["No notes yet."]).map((note) => (
-                  <p key={note}>{note}</p>
-                ))}
-              </div>
+
+              {selectedNode ? (
+                <>
+                  <div className="detail-card">
+                    <span className="detail-label">Kind</span>
+                    <strong>{selectedNode.kind}</strong>
+                  </div>
+                  <div className="detail-card">
+                    <span className="detail-label">Dependencies</span>
+                    <strong>{selectedNode.needs.length ? selectedNode.needs.join(", ") : "entry"}</strong>
+                  </div>
+                  <div className="detail-card">
+                    <span className="detail-label">Output mode</span>
+                    <strong>{selectedNode.outputsMode}</strong>
+                  </div>
+                  <div className="detail-card">
+                    <span className="detail-label">Node session</span>
+                    <strong>{selectedNode.childSessionKey ?? selectedNode.sessionKey ?? "pending"}</strong>
+                  </div>
+                  <div className="detail-card">
+                    <span className="detail-label">Artifacts</span>
+                    <ul className="artifact-list">
+                      {selectedNode.artifactPaths.length ? (
+                        selectedNode.artifactPaths.map((artifact) => <li key={artifact}>{artifact}</li>)
+                      ) : (
+                        <li>none yet</li>
+                      )}
+                    </ul>
+                  </div>
+                  <div className="detail-actions">
+                    <button
+                      className="ghost-btn"
+                      disabled={actionMutation.isPending}
+                      onClick={() => actionMutation.mutate({ action: "retry", nodeId: selectedNode.id })}
+                    >
+                      Retry
+                    </button>
+                    <button
+                      className="ghost-btn"
+                      disabled={actionMutation.isPending}
+                      onClick={() => actionMutation.mutate({ action: "skip", nodeId: selectedNode.id })}
+                    >
+                      Skip
+                    </button>
+                    {selectedNode.kind === "approval" ? (
+                      <button
+                        className="primary-btn"
+                        disabled={actionMutation.isPending}
+                        onClick={() => actionMutation.mutate({ action: "approve", nodeId: selectedNode.id })}
+                      >
+                        Approve
+                      </button>
+                    ) : null}
+                  </div>
+                  <div className="note-list">
+                    {(selectedNode.notes.length ? selectedNode.notes : ["No notes yet."]).map((note) => (
+                      <p key={note}>{note}</p>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <div className="empty-detail">
+                  <p>Select a node to inspect session ownership, outputs, and control actions.</p>
+                </div>
+              )}
+
+              {actionError ? <div className="error-banner">{actionError}</div> : null}
             </div>
           ) : (
             <div className="empty-detail">
-              <p>Select a node in the graph to inspect dependencies, session mapping and artifacts.</p>
+              <p>Choose a run from the left pane to inspect its session binding and control surface.</p>
             </div>
           )}
         </aside>

@@ -125,3 +125,31 @@ async def test_api_list_runs_tolerates_forward_compatible_runtime_fields(tmp_pat
 
     assert list_res.status_code == 200
     assert list_res.json()[0]["runId"] == run_id
+
+
+@pytest.mark.asyncio
+async def test_api_send_message_action(tmp_path: Path) -> None:
+    gateway = FakeGateway()
+    app = create_app(OpenTaskService(store=RunStore(runtime_root=tmp_path / ".opentask"), gateway=gateway))
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        create_res = await client.post(
+            "/api/runs",
+            json={
+                "taskText": "Send an update",
+                "title": "Messaging demo",
+                "sourceSessionKey": "agent:main:discord:channel:123",
+                "sourceAgentId": "main",
+                "deliveryContext": {"channel": "discord", "to": "channel:123"},
+            },
+        )
+        run_id = create_res.json()["runId"]
+
+        message_res = await client.post(
+            f"/api/runs/{run_id}/actions/send_message",
+            json={"message": "still working"},
+        )
+
+    assert message_res.status_code == 200
+    assert message_res.json()["lastProgressMessage"] == "still working"
+    assert gateway.outbound_messages[-1]["to"] == "channel:123"

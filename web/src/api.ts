@@ -54,7 +54,7 @@ export function createRun(input: CreateRunInput): Promise<RunState> {
 export function runAction(
   runId: string,
   action: string,
-  payload?: { nodeId?: string },
+  payload?: { nodeId?: string; message?: string; patch?: Record<string, unknown> },
 ): Promise<RunState> {
   return request<RunState>(`/api/runs/${runId}/actions/${action}`, {
     method: "POST",

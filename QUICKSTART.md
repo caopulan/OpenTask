@@ -2,233 +2,148 @@
 
 [中文版本](QUICKSTART.ZH.md) | [Project Overview](README.md)
 
-This tutorial gets a real OpenTask run onto your screen and onto disk. If your local OpenClaw Gateway is already available, the full walkthrough usually takes less than 10 minutes.
+This guide shows the intended OpenClaw-native path first, then the optional OpenTask backend and UI.
 
-## What You Will Get
+## What You Will Have
 
-By the end of this tutorial you will have:
+By the end you will have:
 
-- the backend running on `http://127.0.0.1:8000`
-- the web UI running on `http://127.0.0.1:5174/`
-- at least one run created from free-form task text
-- at least one run created from the sample workflow
-- a local runtime archive under `.opentask/runs/<runId>/`
+- a validated workflow under `workflows/`
+- a run folder under `runs/<runId>/`
+- a root-session-bound workflow that can continue through OpenClaw cron
+- an optional control plane at `http://127.0.0.1:8000` and `http://127.0.0.1:5174/`
 
-## 1. Prerequisites
-
-Make sure these are ready before you start:
-
-- Python `3.12+`
-- `uv`
-- Node.js and `pnpm`
-- a running OpenClaw Gateway
-- an OpenClaw agent named `opentask` whose workspace points at this repository
-
-If your Gateway limits tool access, allow `sessions_spawn` for the `opentask` agent. Subagent nodes depend on it.
-
-## 2. Install Dependencies
+## 1. Install Dependencies
 
 ```bash
 uv sync --dev
 pnpm --dir web install
 ```
 
-## 3. Confirm OpenClaw Connectivity
+## 2. Set the Registry Root
 
-OpenTask reuses local OpenClaw device-auth files by default:
-
-- `~/.openclaw/identity/device.json`
-- `~/.openclaw/identity/device-auth.json`
-
-If you need custom settings, export them before starting the backend:
+Use the repository itself as the registry root:
 
 ```bash
+export OPENTASK_REGISTRY_ROOT=$PWD
 export OPENTASK_GATEWAY_URL=ws://127.0.0.1:18789
-export OPENTASK_AGENT_ID=opentask
-export OPENTASK_GATEWAY_DEVICE_IDENTITY_PATH=/path/to/device.json
-export OPENTASK_GATEWAY_DEVICE_AUTH_PATH=/path/to/device-auth.json
 ```
 
-## 4. Start the Backend
+## 3. Validate the Sample Workflow
+
+```bash
+uv run opentask workflow validate workflows/research-demo.task.md
+```
+
+## 4. Resolve the Current OpenClaw Session
+
+In the OpenClaw conversation where you want the long-running task to live:
+
+1. Use the OpenTask skill at [skills/opentask/SKILL.md](skills/opentask/SKILL.md).
+2. Resolve the current `sessionKey`, `agentId`, and `deliveryContext`.
+3. Treat that session as the root orchestrator.
+
+Manual example values:
+
+- `sessionKey`: `agent:main:discord:channel:1234567890`
+- `agentId`: `main`
+- `deliveryContext`: `{"channel":"discord","to":"channel:1234567890"}`
+
+## 5. Create a Run Bound to That Session
+
+```bash
+uv run opentask run create \
+  --workflow-path workflows/research-demo.task.md \
+  --source-session-key 'agent:main:discord:channel:1234567890' \
+  --source-agent-id main \
+  --delivery-context-json '{"channel":"discord","to":"channel:1234567890"}'
+```
+
+The command prints the run JSON, including the new `runId`.
+
+## 6. Inspect the Registry
+
+Open the run folder:
+
+```bash
+ls runs/<runId>
+```
+
+You should see:
+
+- `workflow.lock.md`
+- `state.json`
+- `refs.json`
+- `events.jsonl`
+- `control.jsonl`
+- `nodes/`
+
+The contract for each file is documented in [docs/registry-spec.md](docs/registry-spec.md).
+
+## 7. Issue Explicit Controls
+
+Pause or resume:
+
+```bash
+uv run opentask control pause <runId>
+uv run opentask control resume <runId>
+```
+
+Send a user-visible progress update:
+
+```bash
+uv run opentask control send_message <runId> --message "Still running."
+```
+
+Patch cron:
+
+```bash
+uv run opentask control patch_cron <runId> --patch-json '{"enabled": true}'
+```
+
+## 8. Start the Optional Backend
 
 ```bash
 uv run opentask-api
 ```
 
-Leave this terminal running. The API should now answer:
+The backend indexes the registry and exposes control APIs at `http://127.0.0.1:8000`.
 
-```bash
-curl http://127.0.0.1:8000/api/runs
-```
+Useful endpoints:
 
-## 5. Start the Web UI
+- `GET /api/runs`
+- `GET /api/runs/<runId>`
+- `GET /api/runs/<runId>/events`
+- `POST /api/runs/<runId>/actions/send_message`
 
-In a second terminal:
+## 9. Start the Optional Web UI
 
 ```bash
 pnpm --dir web dev
 ```
 
-Open [http://127.0.0.1:5174/](http://127.0.0.1:5174/). The Vite dev server proxies both `/api` and the run stream WebSocket to the backend.
+Open [http://127.0.0.1:5174/](http://127.0.0.1:5174/).
 
-## 6. Create Your First Run from Task Text
+The UI is for:
 
-Use the API directly:
+- browsing runs
+- viewing DAG structure
+- inspecting node artifacts and session bindings
+- issuing explicit control actions
 
-```bash
-curl -X POST http://127.0.0.1:8000/api/runs \
-  -H 'content-type: application/json' \
-  -d '{
-    "title": "Quickstart free-form run",
-    "taskText": "Inspect README.md and write a short report about what OpenTask does."
-  }'
-```
+It is not the preferred production surface for starting new tasks.
 
-Example response:
+## 10. Debug Path: Create a Run Through the API
 
-```json
-{
-  "runId": "opentask-1234abcd",
-  "workflowId": "quickstart-free-form-run",
-  "status": "running"
-}
-```
-
-Copy the returned `runId`. You can now:
-
-- refresh the UI and open the run from the list
-- inspect the event log with `GET /api/runs/<runId>/events`
-- force a scheduling cycle with the `tick` action
-
-Example:
-
-```bash
-curl -X POST http://127.0.0.1:8000/api/runs/opentask-1234abcd/actions/tick \
-  -H 'content-type: application/json' \
-  -d '{}'
-```
-
-## 7. Create a Run from the Sample Workflow
-
-OpenTask ships with a runnable workflow example:
+For local debugging or testing, you can still create a run through the backend:
 
 ```bash
 curl -X POST http://127.0.0.1:8000/api/runs \
   -H 'content-type: application/json' \
   -d '{
-    "workflowPath": "workflows/research-demo.task.md"
+    "title": "Debug run",
+    "taskText": "Inspect README.md and write a short report."
   }'
 ```
 
-That workflow demonstrates:
-
-- a `session_turn` node for the primary execution
-- a `subagent` node using `sessions_spawn`
-- an `approval` gate that waits for an operator action
-- a terminal `summary` node
-
-## 8. Inspect and Control the Run
-
-List runs:
-
-```bash
-curl http://127.0.0.1:8000/api/runs
-```
-
-Read one run:
-
-```bash
-curl http://127.0.0.1:8000/api/runs/opentask-1234abcd
-```
-
-Read the event timeline:
-
-```bash
-curl http://127.0.0.1:8000/api/runs/opentask-1234abcd/events
-```
-
-Pause a run:
-
-```bash
-curl -X POST http://127.0.0.1:8000/api/runs/opentask-1234abcd/actions/pause \
-  -H 'content-type: application/json' \
-  -d '{}'
-```
-
-Resume a run:
-
-```bash
-curl -X POST http://127.0.0.1:8000/api/runs/opentask-1234abcd/actions/resume \
-  -H 'content-type: application/json' \
-  -d '{}'
-```
-
-Approve the sample workflow gate:
-
-```bash
-curl -X POST http://127.0.0.1:8000/api/runs/opentask-1234abcd/actions/approve \
-  -H 'content-type: application/json' \
-  -d '{
-    "nodeId": "approval-gate"
-  }'
-```
-
-Retry a node:
-
-```bash
-curl -X POST http://127.0.0.1:8000/api/runs/opentask-1234abcd/actions/retry \
-  -H 'content-type: application/json' \
-  -d '{
-    "nodeId": "gather-context"
-  }'
-```
-
-Everything above is also available in the web UI through the run list, graph view, event timeline, and node detail panel.
-
-## 9. Inspect the Runtime Archive
-
-Each run is written to `.opentask/runs/<runId>/`.
-
-Key files:
-
-- `workflow.lock.md` keeps the frozen workflow snapshot
-- `state.json` is the current API/UI state projection
-- `events.jsonl` is the append-only audit trail
-- `openclaw.json` stores planner, driver, cron, and node session references
-- `nodes/<nodeId>/` stores reports and node-level artifacts
-- `.run.lock` prevents duplicate cross-process mutations on the same run
-
-This means you can inspect a run without querying the UI, and you can keep the runtime store out of git.
-
-## 10. Troubleshooting
-
-### `gateway error: device identity required`
-
-Your OpenClaw device-auth files are missing or not readable. Check:
-
-- `~/.openclaw/identity/device.json`
-- `~/.openclaw/identity/device-auth.json`
-
-Or point OpenTask at alternate files with `OPENTASK_GATEWAY_DEVICE_IDENTITY_PATH` and `OPENTASK_GATEWAY_DEVICE_AUTH_PATH`.
-
-### New runs stay in `running`, but nodes do not advance
-
-Check all three layers:
-
-- the backend terminal for Gateway or parsing errors
-- the UI timeline for `driver.requested`, `node.started`, and `node.completed`
-- `.opentask/runs/<runId>/events.jsonl` for the authoritative audit trail
-
-### `subagent` nodes fail immediately
-
-Your OpenClaw Gateway likely does not allow `sessions_spawn` for the `opentask` agent yet.
-
-### The UI loads, but API calls fail
-
-Make sure `uv run opentask-api` is running on `127.0.0.1:8000`. The frontend dev server depends on that proxy target by default.
-
-## Next Steps
-
-- Read [README.md](README.md) for the architecture and operating model.
-- Read [workflows/research-demo.task.md](workflows/research-demo.task.md) to understand the workflow schema.
-- Read [web/README.md](web/README.md) for frontend-specific commands.
+This uses the same core library, but it is an operator convenience path rather than the preferred OpenClaw-native entry.

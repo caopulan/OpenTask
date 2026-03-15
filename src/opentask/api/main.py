@@ -9,7 +9,7 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from watchfiles import Change, awatch
 
-from opentask.models import CreateRunRequest, NodeActionRequest
+from opentask.models import CreateRunRequest, RunActionRequest
 from opentask.openclaw_client import OpenClawGatewayError
 from opentask.service import OpenTaskService
 
@@ -101,8 +101,8 @@ def create_app(service: OpenTaskService | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail=f"run not found: {run_id}") from exc
 
     @app.post("/api/runs/{run_id}/actions/{action}")
-    async def run_action(run_id: str, action: str, request: NodeActionRequest | None = None) -> dict:
-        payload = request or NodeActionRequest()
+    async def run_action(run_id: str, action: str, request: RunActionRequest | None = None) -> dict:
+        payload = request or RunActionRequest()
         try:
             if action == "pause":
                 run = await service.pause_run(run_id)
@@ -120,6 +120,12 @@ def create_app(service: OpenTaskService | None = None) -> FastAPI:
                 if not payload.node_id:
                     raise HTTPException(status_code=400, detail="nodeId is required for approve")
                 run = await service.approve_node(run_id, payload.node_id)
+            elif action == "send_message":
+                if not payload.message:
+                    raise HTTPException(status_code=400, detail="message is required for send_message")
+                run = await service.send_message(run_id, payload.message)
+            elif action == "patch_cron":
+                run = await service.patch_cron(run_id, payload.patch)
             elif action == "tick":
                 run = await service.force_tick(run_id)
             else:

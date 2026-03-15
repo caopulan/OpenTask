@@ -148,6 +148,10 @@ textarea {
   gap: 20px;
 }
 
+.control-plane-grid {
+  grid-template-columns: 340px minmax(0, 1fr) 340px;
+}
+
 .panel {
   border: 1px solid var(--line);
   border-radius: 26px;
@@ -260,6 +264,12 @@ textarea {
   max-height: 46vh;
   overflow: auto;
   padding-right: 4px;
+}
+
+.debug-section {
+  margin-top: 22px;
+  padding-top: 22px;
+  border-top: 1px solid rgba(248, 242, 230, 0.08);
 }
 
 .run-card {
@@ -435,6 +445,39 @@ textarea {
   display: block;
   margin-top: 8px;
   word-break: break-word;
+}
+
+.detail-muted {
+  display: block;
+  margin-top: 8px;
+  color: rgba(248, 242, 230, 0.58);
+  font-size: 0.82rem;
+}
+
+.composer-card {
+  padding: 16px;
+  border-radius: 18px;
+  background: rgba(248, 242, 230, 0.04);
+  border: 1px solid rgba(248, 242, 230, 0.08);
+}
+
+.composer-card textarea {
+  width: 100%;
+  margin-top: 12px;
+  margin-bottom: 12px;
+  border: 1px solid rgba(248, 242, 230, 0.12);
+  border-radius: 16px;
+  background: rgba(7, 11, 14, 0.36);
+  color: #fff8f0;
+  padding: 14px 16px;
+}
+
+.error-banner {
+  padding: 14px 16px;
+  border-radius: 18px;
+  color: #ffe7db;
+  background: rgba(190, 94, 46, 0.16);
+  border: 1px solid rgba(190, 94, 46, 0.28);
 }
 
 .artifact-list {
