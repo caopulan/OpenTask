@@ -1,97 +1,33 @@
-# OpenTask Skill
+---
+name: opentask
+description: Manage OpenTask registry-backed workflows for OpenClaw-native long-running tasks. Use when a conversation should become a persistent workflow that keeps running through OpenClaw sessions, subagents, and cron while remaining inspectable in the registry and OpenTask UI; also use when binding the current Discord or channel session as the root orchestrator, validating or creating workflows, creating or binding runs, appending explicit control actions, sending progress updates, or patching cron.
+---
+
+# OpenTask
 
 [中文版本](./SKILL.ZH.md)
 
-Use this skill when the current conversation should become a long-running, auditable workflow that OpenClaw can continue through cron and subagents.
+Treat OpenClaw as the execution plane and OpenTask as the registry plus control plane.
 
-## Goal
+## Follow This Flow
 
-Treat OpenTask as a registry contract plus control surface:
+1. Resolve the current session with `sessions_list`.
+2. Capture `sessionKey`, `agentId`, and `deliveryContext`.
+3. Create or update `workflows/*.task.md`.
+4. Validate the workflow with `uv run opentask workflow validate ...`.
+5. Create or bind the run with the current session as the root orchestrator.
+6. Let OpenClaw continue the run through the root session, subagents, and cron.
+7. Use explicit controls for operator intervention.
 
-- OpenClaw stays responsible for execution.
-- OpenTask UI stays responsible for visualization and explicit control actions.
-- The registry under `workflows/` and `runs/` is the shared source of truth.
+## Read These References Only When Needed
 
-## When To Use It
+- Read [references/operations.md](./references/operations.md) for CLI commands, session binding, and control actions.
+- Read [references/registry.md](./references/registry.md) for the registry layout, allowed edits, and node output contract.
 
-Use this skill when:
+## Keep These Rules
 
-- the task is multi-step or long-running
-- you need subagents or repeated cron ticks
-- the user wants persistent tracking, artifacts, and operator controls
-- the current Discord or channel session should remain the root orchestrator
-
-Do not use it for one-off answers that can complete in the current turn.
-
-## Session Binding
-
-Before creating a run, resolve the current session binding:
-
-1. Use `sessions_list` to identify the current session entry.
-2. Capture:
-   - `sessionKey`
-   - `agentId`
-   - `deliveryContext`
-3. Treat that session as the root orchestrator session.
-
-Internal orchestration messages must not be delivered back to the user verbatim. Use explicit progress sends instead.
-
-## Preferred Flow
-
-1. Create or update a workflow file under `workflows/*.task.md`.
-2. Validate the workflow with:
-
-   ```bash
-   uv run opentask workflow validate workflows/example.task.md
-   ```
-
-3. Create the run bound to the current session:
-
-   ```bash
-   uv run opentask run create \
-     --workflow-path workflows/example.task.md \
-     --source-session-key '<sessionKey>' \
-     --source-agent-id '<agentId>' \
-     --delivery-context-json '<json>'
-   ```
-
-4. Let OpenClaw continue the run through the root session and cron.
-5. If the user asks for intervention, use explicit control actions.
-
-## Control Commands
-
-Pause or resume:
-
-```bash
-uv run opentask control pause <runId>
-uv run opentask control resume <runId>
-```
-
-Node-level control:
-
-```bash
-uv run opentask control retry <runId> --node-id <nodeId>
-uv run opentask control skip <runId> --node-id <nodeId>
-uv run opentask control approve <runId> --node-id <nodeId>
-```
-
-Send an explicit update to the source delivery context:
-
-```bash
-uv run opentask control send_message <runId> --message "Progress update"
-```
-
-Patch the cron job:
-
-```bash
-uv run opentask control patch_cron <runId> --patch-json '{"enabled": true}'
-```
-
-## Output Contract
-
-Subagents and node executors should leave:
-
-- `runs/<runId>/nodes/<nodeId>/report.md`
-- `runs/<runId>/nodes/<nodeId>/result.json`
-
-See the formal registry contract in [registry-spec.md](../../docs/registry-spec.md).
+- Treat the current user-facing session as the root orchestrator session.
+- Send user-visible progress through explicit updates; do not expose raw orchestration prompts.
+- Let OpenClaw execute nodes and cron turns; let OpenTask record registry state and controls.
+- Edit workflow files or append controls; do not hand-edit `state.json`, `refs.json`, or `events.jsonl`.
+- Leave node outputs as `report.md` and `result.json`.

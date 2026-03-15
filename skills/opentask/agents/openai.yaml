@@ -1,0 +1,4 @@
+interface:
+  display_name: "OpenTask"
+  short_description: "Manage OpenTask workflow registry runs"
+  default_prompt: "Use $opentask to bind this conversation to a long-running workflow and manage it through the OpenTask registry."
