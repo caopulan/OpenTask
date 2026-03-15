@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 import pytest
@@ -7,6 +8,7 @@ import pytest
 from opentask.models import CreateRunRequest
 from opentask.service import OpenTaskService
 from opentask.store import RunStore
+from opentask.workflow import build_starter_workflow
 
 
 class FakeGateway:
@@ -51,6 +53,12 @@ class FakeGateway:
 
     async def chat_history(self, session_key: str, limit: int = 20):
         return self.session_histories.get(session_key, [])[-limit:]
+
+
+class SlowGateway(FakeGateway):
+    async def send_chat(self, **kwargs):
+        await asyncio.sleep(0.05)
+        return await super().send_chat(**kwargs)
 
 
 @pytest.mark.asyncio
@@ -277,6 +285,28 @@ async def test_tick_requests_driver_turn_when_run_changes(tmp_path: Path) -> Non
     assert refs.driver_run_id is not None
     assert refs.driver_requested_event_count >= 1
     assert (service.store.runs_root / state.run_id / "driver.context.md").exists()
+
+
+@pytest.mark.asyncio
+async def test_concurrent_ticks_do_not_duplicate_dispatch(tmp_path: Path) -> None:
+    gateway = SlowGateway()
+    store = RunStore(runtime_root=tmp_path / ".opentask")
+    service = OpenTaskService(store=store, gateway=gateway)
+    workflow = build_starter_workflow("Concurrent tick", "Run only once")
+    state, _ = store.create_run(workflow)
+
+    await asyncio.gather(service.tick_run(state.run_id), service.tick_run(state.run_id))
+
+    execute_messages = [
+        message
+        for message in gateway.sent_messages
+        if message["session_key"].endswith(":node:execute-task")
+    ]
+    assert len(execute_messages) == 1
+
+    events = service.get_events(state.run_id)
+    execute_started = [event for event in events if event.event == "node.started" and event.node_id == "execute-task"]
+    assert len(execute_started) == 1
 
 
 @pytest.mark.asyncio

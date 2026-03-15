@@ -78,6 +78,7 @@ class OpenTaskService:
         self.store = store or RunStore()
         self.gateway = gateway or OpenClawClient()
         self._subscribers: dict[str, set[asyncio.Queue[dict]]] = defaultdict(set)
+        self._run_locks: dict[str, asyncio.Lock] = {}
 
     def list_runs(self) -> list[RunState]:
         return self.store.list_runs()
@@ -92,23 +93,29 @@ class OpenTaskService:
         parsed = self._resolve_workflow(request)
         parsed, added_events = ensure_summary_node(parsed)
         state, refs = self.store.create_run(parsed)
+        lock = self._lock_for_run(state.run_id)
 
-        for event in added_events:
-            self.store.append_event(
-                state.run_id,
-                event.model_copy(update={"run_id": state.run_id, "timestamp": state.created_at}),
-            )
+        async with lock:
+            for event in added_events:
+                self.store.append_event(
+                    state.run_id,
+                    event.model_copy(update={"run_id": state.run_id, "timestamp": state.created_at}),
+                )
 
-        planner_prompt = self._build_planner_prompt(state.run_id, parsed.body)
-        driver_prompt = self._build_driver_prompt(state.run_id)
-        self.store.write_support_file(state.run_id, "planner.prompt.md", planner_prompt)
-        self.store.write_support_file(state.run_id, "driver.prompt.md", driver_prompt)
+            planner_prompt = self._build_planner_prompt(state.run_id, parsed.body)
+            driver_prompt = self._build_driver_prompt(state.run_id)
+            self.store.write_support_file(state.run_id, "planner.prompt.md", planner_prompt)
+            self.store.write_support_file(state.run_id, "driver.prompt.md", driver_prompt)
 
-        state = await self._bootstrap_openclaw(state, refs, parsed, planner_prompt, driver_prompt)
-        state = await self.tick_run(state.run_id)
+            state = await self._bootstrap_openclaw(state, refs, parsed, planner_prompt, driver_prompt)
+            state = await self._tick_run_unlocked(state.run_id)
         return state
 
     async def tick_run(self, run_id: str) -> RunState:
+        async with self._lock_for_run(run_id):
+            return await self._tick_run_unlocked(run_id)
+
+    async def _tick_run_unlocked(self, run_id: str) -> RunState:
         workflow = self.store.load_workflow_lock(run_id)
         state = self.store.load_state(run_id)
         refs = self.store.load_openclaw_refs(run_id)
@@ -130,128 +137,134 @@ class OpenTaskService:
         return state
 
     async def pause_run(self, run_id: str) -> RunState:
-        state = self.store.load_state(run_id)
-        refs = self.store.load_openclaw_refs(run_id)
-        if refs.cron_job_id:
-            await self.gateway.cron_update(refs.cron_job_id, {"enabled": False})
-        state = self.store.update_state_timestamp(
-            state.model_copy(update={"status": "paused"}),
-            last_event="run.paused",
-        )
-        self.store.write_state(state)
-        self.store.append_event(run_id, RunEvent(event="run.paused", runId=run_id))
-        await self._publish(state)
-        return state
+        async with self._lock_for_run(run_id):
+            state = self.store.load_state(run_id)
+            refs = self.store.load_openclaw_refs(run_id)
+            if refs.cron_job_id:
+                await self.gateway.cron_update(refs.cron_job_id, {"enabled": False})
+            state = self.store.update_state_timestamp(
+                state.model_copy(update={"status": "paused"}),
+                last_event="run.paused",
+            )
+            self.store.write_state(state)
+            self.store.append_event(run_id, RunEvent(event="run.paused", runId=run_id))
+            await self._publish(state)
+            return state
 
     async def resume_run(self, run_id: str) -> RunState:
-        state = self.store.load_state(run_id)
-        refs = self.store.load_openclaw_refs(run_id)
-        if refs.cron_job_id:
-            await self.gateway.cron_update(refs.cron_job_id, {"enabled": True})
-        state = self.store.update_state_timestamp(
-            state.model_copy(update={"status": "running"}),
-            last_event="run.resumed",
-        )
-        self.store.write_state(state)
-        self.store.append_event(run_id, RunEvent(event="run.resumed", runId=run_id))
-        await self._publish(state)
-        return state
+        async with self._lock_for_run(run_id):
+            state = self.store.load_state(run_id)
+            refs = self.store.load_openclaw_refs(run_id)
+            if refs.cron_job_id:
+                await self.gateway.cron_update(refs.cron_job_id, {"enabled": True})
+            state = self.store.update_state_timestamp(
+                state.model_copy(update={"status": "running"}),
+                last_event="run.resumed",
+            )
+            self.store.write_state(state)
+            self.store.append_event(run_id, RunEvent(event="run.resumed", runId=run_id))
+            await self._publish(state)
+            return state
 
     async def retry_node(self, run_id: str, node_id: str) -> RunState:
-        state = self.store.load_state(run_id)
-        nodes = []
-        for node in state.nodes:
-            if node.id == node_id:
-                nodes.append(
-                    node.model_copy(
-                        update={
-                            "status": "pending",
-                            "run_id": None,
-                            "session_key": None,
-                            "child_session_key": None,
-                            "started_at": None,
-                            "completed_at": None,
-                            "notes": [*node.notes, "Retried by operator."],
-                        }
+        async with self._lock_for_run(run_id):
+            state = self.store.load_state(run_id)
+            nodes = []
+            for node in state.nodes:
+                if node.id == node_id:
+                    nodes.append(
+                        node.model_copy(
+                            update={
+                                "status": "pending",
+                                "run_id": None,
+                                "session_key": None,
+                                "child_session_key": None,
+                                "started_at": None,
+                                "completed_at": None,
+                                "notes": [*node.notes, "Retried by operator."],
+                            }
+                        )
                     )
-                )
-            else:
-                nodes.append(node)
-        state = self.store.update_state_timestamp(
-            state.model_copy(update={"status": "running", "nodes": nodes}),
-            last_event="node.retry",
-        )
-        self.store.write_state(state)
-        self.store.append_event(
-            run_id,
-            RunEvent(event="node.ready", runId=run_id, nodeId=node_id, message="Node retried."),
-        )
-        return await self.tick_run(run_id)
+                else:
+                    nodes.append(node)
+            state = self.store.update_state_timestamp(
+                state.model_copy(update={"status": "running", "nodes": nodes}),
+                last_event="node.retry",
+            )
+            self.store.write_state(state)
+            self.store.append_event(
+                run_id,
+                RunEvent(event="node.ready", runId=run_id, nodeId=node_id, message="Node retried."),
+            )
+            return await self._tick_run_unlocked(run_id)
 
     async def skip_node(self, run_id: str, node_id: str) -> RunState:
-        state = self.store.load_state(run_id)
-        nodes = []
-        for node in state.nodes:
-            if node.id == node_id:
-                nodes.append(
-                    node.model_copy(
-                        update={
-                            "status": "skipped",
-                            "completed_at": utc_now(),
-                            "notes": [*node.notes, "Skipped by operator."],
-                        }
+        async with self._lock_for_run(run_id):
+            state = self.store.load_state(run_id)
+            nodes = []
+            for node in state.nodes:
+                if node.id == node_id:
+                    nodes.append(
+                        node.model_copy(
+                            update={
+                                "status": "skipped",
+                                "completed_at": utc_now(),
+                                "notes": [*node.notes, "Skipped by operator."],
+                            }
+                        )
                     )
-                )
-            else:
-                nodes.append(node)
-        state = self.store.update_state_timestamp(
-            state.model_copy(update={"nodes": nodes}),
-            last_event="node.skipped",
-        )
-        self.store.write_state(state)
-        self.store.append_event(
-            run_id,
-            RunEvent(event="node.skipped", runId=run_id, nodeId=node_id, message="Node skipped."),
-        )
-        return await self.tick_run(run_id)
+                else:
+                    nodes.append(node)
+            state = self.store.update_state_timestamp(
+                state.model_copy(update={"nodes": nodes}),
+                last_event="node.skipped",
+            )
+            self.store.write_state(state)
+            self.store.append_event(
+                run_id,
+                RunEvent(event="node.skipped", runId=run_id, nodeId=node_id, message="Node skipped."),
+            )
+            return await self._tick_run_unlocked(run_id)
 
     async def approve_node(self, run_id: str, node_id: str) -> RunState:
-        state = self.store.load_state(run_id)
-        nodes = []
-        for node in state.nodes:
-            if node.id == node_id:
-                nodes.append(
-                    node.model_copy(
-                        update={
-                            "status": "completed",
-                            "completed_at": utc_now(),
-                            "notes": [*node.notes, "Approved by operator."],
-                        }
+        async with self._lock_for_run(run_id):
+            state = self.store.load_state(run_id)
+            nodes = []
+            for node in state.nodes:
+                if node.id == node_id:
+                    nodes.append(
+                        node.model_copy(
+                            update={
+                                "status": "completed",
+                                "completed_at": utc_now(),
+                                "notes": [*node.notes, "Approved by operator."],
+                            }
+                        )
                     )
-                )
-            else:
-                nodes.append(node)
-        state = self.store.update_state_timestamp(
-            state.model_copy(update={"nodes": nodes}),
-            last_event="node.approved",
-        )
-        self.store.write_state(state)
-        self.store.append_event(
-            run_id,
-            RunEvent(
-                event="node.completed",
-                runId=run_id,
-                nodeId=node_id,
-                message="Approval gate completed by operator.",
-            ),
-        )
-        return await self.tick_run(run_id)
+                else:
+                    nodes.append(node)
+            state = self.store.update_state_timestamp(
+                state.model_copy(update={"nodes": nodes}),
+                last_event="node.approved",
+            )
+            self.store.write_state(state)
+            self.store.append_event(
+                run_id,
+                RunEvent(
+                    event="node.completed",
+                    runId=run_id,
+                    nodeId=node_id,
+                    message="Approval gate completed by operator.",
+                ),
+            )
+            return await self._tick_run_unlocked(run_id)
 
     async def force_tick(self, run_id: str) -> RunState:
-        refs = self.store.load_openclaw_refs(run_id)
-        if refs.cron_job_id:
-            await self.gateway.cron_run(refs.cron_job_id)
-        return await self.tick_run(run_id)
+        async with self._lock_for_run(run_id):
+            refs = self.store.load_openclaw_refs(run_id)
+            if refs.cron_job_id:
+                await self.gateway.cron_run(refs.cron_job_id)
+            return await self._tick_run_unlocked(run_id)
 
     def subscribe(self, run_id: str) -> asyncio.Queue[dict]:
         queue: asyncio.Queue[dict] = asyncio.Queue()
@@ -1034,6 +1047,13 @@ class OpenTaskService:
             artifactPaths=artifact_paths,
             waitFor=node.wait_for,
         )
+
+    def _lock_for_run(self, run_id: str) -> asyncio.Lock:
+        lock = self._run_locks.get(run_id)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._run_locks[run_id] = lock
+        return lock
 
     def _session_key_for_node(self, run_id: str, node_id: str, kind: str) -> str:
         suffix = "subagent" if kind == "subagent" else "node"
