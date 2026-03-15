@@ -192,6 +192,12 @@ Common events:
 
 The Orchestrator Session should read it, but it does not need to create control records for its normal internal work.
 
+If there are no explicit control actions yet, `control.jsonl` may exist as a zero-byte file.
+
+If `control.jsonl` is non-empty, every line must be a valid JSON object. Do not write comments, headings, or prose into this file.
+
+If you only need the file to exist before the first action arrives, create an empty file instead of a placeholder line.
+
 Supported actions:
 
 - `pause`

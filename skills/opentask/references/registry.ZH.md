@@ -192,6 +192,12 @@ Orchestrator Session 必须保持 `state.json` 最新。
 
 Orchestrator Session 应该读取它，但不需要为自己的正常内部工作写 control 记录。
 
+如果还没有任何显式 control 动作，`control.jsonl` 可以是一个零字节空文件。
+
+如果 `control.jsonl` 非空，那么每一行都必须是一个合法的 JSON 对象。不要在这个文件里写注释、标题或普通说明文字。
+
+如果你只是需要它先存在，请创建空文件，而不是写一条占位文本。
+
 支持的动作：
 
 - `pause`

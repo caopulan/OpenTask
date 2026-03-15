@@ -14,6 +14,8 @@ Use normal file tools to:
 - append lines to `events.jsonl`
 - write `nodes/<nodeId>/report.md` and `result.json`
 
+When `control.jsonl` must exist before any actions are appended, create it as an empty file. Do not write placeholder comments or prose into that file.
+
 ## 2. Session Discovery
 
 Use `sessions_list` to resolve the current session entry and capture:

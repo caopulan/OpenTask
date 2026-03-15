@@ -14,6 +14,8 @@
 - 向 `events.jsonl` 追加一行
 - 写 `nodes/<nodeId>/report.md` 和 `result.json`
 
+如果 `control.jsonl` 需要先存在但还没有任何动作，就把它创建成空文件。不要往这个文件里写占位注释或普通说明文字。
+
 ## 2. Session 发现
 
 用 `sessions_list` 找到当前 session 条目，并记录：
