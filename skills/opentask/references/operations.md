@@ -1,77 +1,67 @@
-# Operations
+# Native Operations
 
 [中文版本](./operations.ZH.md)
 
-## Session Binding
+Use native OpenClaw tools and file edits. Do not assume the OpenTask backend or CLI is available.
 
-Resolve the current session before creating a run.
+## 1. Filesystem Work
 
-Capture:
+Use normal file tools to:
+
+- create `workflows/*.task.md`
+- create `runs/<runId>/...`
+- update `workflow.lock.md`, `state.json`, `refs.json`
+- append lines to `events.jsonl`
+- write `nodes/<nodeId>/report.md` and `result.json`
+
+## 2. Session Discovery
+
+Use `sessions_list` to resolve the current session entry and capture:
 
 - `sessionKey`
 - `agentId`
 - `deliveryContext`
 
-Treat that session as the root orchestrator.
+## 3. Subagent Creation
 
-## Workflow Commands
+Use `sessions_spawn` when a node is delegated.
 
-Validate a workflow:
+The child prompt should include:
 
-```bash
-uv run opentask workflow validate workflows/example.task.md
-```
+- run path
+- node id
+- scoped task
+- dependency artifacts to read
+- required outputs to write
+- a rule to avoid global state mutation
+- a rule to suppress direct user-facing announce unless explicitly requested
 
-## Run Commands
+## 4. Child Result Collection
 
-Create a run bound to the current session:
+Use `sessions_history` or equivalent session history reads when:
 
-```bash
-uv run opentask run create \
-  --workflow-path workflows/example.task.md \
-  --source-session-key '<sessionKey>' \
-  --source-agent-id '<agentId>' \
-  --delivery-context-json '<json>'
-```
+- the child result needs verification
+- a child failed to write artifacts
+- you need to reconstruct `report.md` or `result.json`
 
-Rebind an existing run:
+## 5. Cron
 
-```bash
-uv run opentask run bind <runId> \
-  --source-session-key '<sessionKey>' \
-  --source-agent-id '<agentId>' \
-  --delivery-context-json '<json>'
-```
+Use cron to keep the Orchestrator Session alive until the run is terminal.
 
-## Control Commands
+Cron should target the Orchestrator Session and use non-user delivery for internal ticks.
 
-Pause or resume:
+When the run is terminal:
 
-```bash
-uv run opentask control pause <runId>
-uv run opentask control resume <runId>
-```
+- disable or remove cron
 
-Retry, skip, or approve a node:
+## 6. User Messaging
 
-```bash
-uv run opentask control retry <runId> --node-id <nodeId>
-uv run opentask control skip <runId> --node-id <nodeId>
-uv run opentask control approve <runId> --node-id <nodeId>
-```
+Use the native message send tool only for explicit user-visible updates:
 
-Send a user-visible progress update:
+- start acknowledgement
+- milestone update
+- approval request
+- blocker or failure
+- final completion
 
-```bash
-uv run opentask control send_message <runId> --message "Progress update"
-```
-
-Patch cron:
-
-```bash
-uv run opentask control patch_cron <runId> --patch-json '{"enabled": true}'
-```
-
-## Operator Rule
-
-Use control commands or append `control.jsonl` records for interventions. Do not hand-edit the runtime projection files.
+Do not send internal bookkeeping as user-facing chat.

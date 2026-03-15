@@ -1,77 +1,67 @@
-# 操作参考
+# 原生操作
 
 [English Version](./operations.md)
 
-## Session 绑定
+优先使用 OpenClaw 原生工具和文件编辑，不要假设 OpenTask 后端或 CLI 一定可用。
 
-创建 run 之前先解析当前 session。
+## 1. 文件系统操作
 
-记录：
+用普通文件工具来：
+
+- 创建 `workflows/*.task.md`
+- 创建 `runs/<runId>/...`
+- 更新 `workflow.lock.md`、`state.json`、`refs.json`
+- 向 `events.jsonl` 追加一行
+- 写 `nodes/<nodeId>/report.md` 和 `result.json`
+
+## 2. Session 发现
+
+用 `sessions_list` 找到当前 session 条目，并记录：
 
 - `sessionKey`
 - `agentId`
 - `deliveryContext`
 
-把这个 session 当作 root orchestrator。
+## 3. 创建 Subagent
 
-## 工作流命令
+节点需要委派时，用 `sessions_spawn`。
 
-校验工作流：
+child prompt 应包含：
 
-```bash
-uv run opentask workflow validate workflows/example.task.md
-```
+- run 路径
+- node id
+- 有边界的任务范围
+- 需要读取的依赖产物
+- 必须写出的输出文件
+- 不得修改全局状态
+- 除非明确要求，否则不要直接向用户播报
 
-## Run 命令
+## 4. 获取 Child 结果
 
-把当前 session 绑定进去创建 run：
+以下情况使用 `sessions_history` 或等价 history 读取：
 
-```bash
-uv run opentask run create \
-  --workflow-path workflows/example.task.md \
-  --source-session-key '<sessionKey>' \
-  --source-agent-id '<agentId>' \
-  --delivery-context-json '<json>'
-```
+- 需要核实 child 结果
+- child 没有写出产物
+- 需要回填 `report.md` 或 `result.json`
 
-重新绑定已有 run：
+## 5. Cron
 
-```bash
-uv run opentask run bind <runId> \
-  --source-session-key '<sessionKey>' \
-  --source-agent-id '<agentId>' \
-  --delivery-context-json '<json>'
-```
+用 cron 让 Orchestrator Session 一直活着，直到 run 进入终态。
 
-## 控制命令
+cron 应该绑定 Orchestrator Session，并对内部 tick 使用非用户可见投递。
 
-暂停或恢复：
+当 run 结束时：
 
-```bash
-uv run opentask control pause <runId>
-uv run opentask control resume <runId>
-```
+- 禁用或删除 cron
 
-重试、跳过或批准节点：
+## 6. 用户消息
 
-```bash
-uv run opentask control retry <runId> --node-id <nodeId>
-uv run opentask control skip <runId> --node-id <nodeId>
-uv run opentask control approve <runId> --node-id <nodeId>
-```
+只有在这些显式场景才使用原生 message send：
 
-发送用户可见进度消息：
+- 启动确认
+- 里程碑更新
+- 请求审批
+- 阻塞或失败
+- 最终完成
 
-```bash
-uv run opentask control send_message <runId> --message "Progress update"
-```
-
-修改 cron：
-
-```bash
-uv run opentask control patch_cron <runId> --patch-json '{"enabled": true}'
-```
-
-## 运维规则
-
-人工介入优先使用控制命令，或者追加 `control.jsonl` 记录；不要手工改运行态投影文件。
+不要把内部记账或调度信息直接发给用户。

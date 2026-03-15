@@ -1,15 +1,15 @@
-# Registry 参考
+# Registry 协议
 
 [English Version](./registry.md)
 
-## 真源
+这个文件定义了 Orchestrator Session 必须创建和维护的文件。
 
-只把 registry 当作唯一持久真源。
+## 1. 目录结构
 
 ```text
-<registry-root>/
+<repo-root>/
   workflows/
-    *.task.md
+    <workflowId>.task.md
   runs/
     <runId>/
       workflow.lock.md
@@ -23,32 +23,217 @@
           result.json
 ```
 
-## 每个文件的含义
+## 2. Workflow 文件
 
-- `workflow.lock.md`：当前 run 的冻结工作流快照
-- `state.json`：给 UI 和操作者使用的状态投影
-- `refs.json`：OpenClaw 运行时绑定，例如 source session、root session、cron、child sessions
-- `events.jsonl`：追加式审计日志
-- `control.jsonl`：显式人工或 UI 动作
+直接用 Markdown + YAML frontmatter 写工作流。
 
-## 允许的人工修改
+frontmatter 必填字段：
 
-允许：
+- `workflowId`
+- `title`
+- `defaults`
+- `driver`
+- `nodes`
 
-- 编辑 `workflows/*.task.md`
-- 向 `control.jsonl` 追加新记录
+节点必填字段：
 
-不允许：
+- `id`
+- `title`
+- `kind`
+- `needs`
+- `prompt`
+- `outputs`
 
-- 手工改 `state.json`
-- 手工改 `refs.json`
-- 重写或删除 `events.jsonl`
+允许的节点类型：
 
-## 节点输出契约
+- `session_turn`
+- `subagent`
+- `wait`
+- `approval`
+- `summary`
 
-节点完成后应该留下：
+允许的输出模式：
 
-- `nodes/<nodeId>/report.md`，给人看的报告
-- `nodes/<nodeId>/result.json`，给机器读的状态和 session 绑定
+- `notify`
+- `report`
 
-项目的完整契约见 [../../../docs/registry-spec.ZH.md](../../../docs/registry-spec.ZH.md)。
+## 3. 最小工作流示例
+
+```md
+---
+workflowId: repo-audit
+title: Repo audit
+defaults:
+  agentId: main
+driver:
+  cron: "*/2 * * * *"
+nodes:
+  - id: gather-context
+    title: Gather context
+    kind: session_turn
+    needs: []
+    prompt: Inspect the repository and write a short context report.
+    outputs:
+      mode: report
+      requiredFiles:
+        - nodes/gather-context/report.md
+  - id: implement-fix
+    title: Implement fix
+    kind: subagent
+    needs: [gather-context]
+    prompt: Implement the required code changes and write a report.
+    outputs:
+      mode: report
+      requiredFiles:
+        - nodes/implement-fix/report.md
+  - id: summary
+    title: Summary
+    kind: summary
+    needs: [implement-fix]
+    prompt: Summarize the completed workflow.
+    outputs:
+      mode: report
+      requiredFiles:
+        - nodes/summary/report.md
+---
+```
+
+## 4. state.json
+
+Orchestrator Session 必须保持 `state.json` 最新。
+
+最小字段：
+
+```json
+{
+  "runId": "run-123",
+  "workflowId": "repo-audit",
+  "title": "Repo audit",
+  "status": "running",
+  "sourceSessionKey": "agent:main:discord:channel:123",
+  "sourceAgentId": "main",
+  "deliveryContext": {
+    "channel": "discord",
+    "to": "channel:123"
+  },
+  "rootSessionKey": "agent:main:discord:channel:123",
+  "cronJobId": "cron-123",
+  "updatedAt": "2026-03-16T00:00:00Z",
+  "nodes": []
+}
+```
+
+`nodes` 里的每个节点应至少追踪：
+
+- `id`
+- `title`
+- `kind`
+- `status`
+- `needs`
+- `outputsMode`
+- `sessionKey`
+- `childSessionKey`
+- `artifactPaths`
+- `startedAt`
+- `completedAt`
+
+## 5. refs.json
+
+`refs.json` 用于保存执行绑定关系。
+
+最小字段：
+
+```json
+{
+  "runId": "run-123",
+  "sourceSessionKey": "agent:main:discord:channel:123",
+  "sourceAgentId": "main",
+  "deliveryContext": {
+    "channel": "discord",
+    "to": "channel:123"
+  },
+  "rootSessionKey": "agent:main:discord:channel:123",
+  "cronJobId": "cron-123",
+  "nodeSessions": {},
+  "childSessions": {},
+  "nodeRunIds": {},
+  "appliedControlIds": []
+}
+```
+
+## 6. events.jsonl
+
+每行追加一个 JSON 对象，绝不要重写历史。
+
+最小字段：
+
+- `event`
+- `timestamp`
+- `runId`
+- `nodeId`，如适用
+- `message`
+- `payload`
+
+常见事件：
+
+- `run.created`
+- `node.ready`
+- `node.started`
+- `node.completed`
+- `node.failed`
+- `node.waiting`
+- `node.added`
+- `node.rewired`
+- `run.completed`
+
+## 7. control.jsonl
+
+`control.jsonl` 用于显式用户或 UI 动作。
+
+Orchestrator Session 应该读取它，但不需要为自己的正常内部工作写 control 记录。
+
+支持的动作：
+
+- `pause`
+- `resume`
+- `retry`
+- `skip`
+- `approve`
+- `send_message`
+- `patch_cron`
+
+## 8. 节点文件
+
+每个节点目录里可以有辅助文件，但以下两个是规范文件：
+
+- `report.md`
+- `result.json`
+
+`result.json` 最小字段：
+
+```json
+{
+  "runId": "run-123",
+  "nodeId": "implement-fix",
+  "status": "completed",
+  "summary": "Implemented the requested change.",
+  "artifacts": ["nodes/implement-fix/report.md"],
+  "sessionKey": "agent:main:discord:channel:123",
+  "childSessionKey": "agent:main:subagent:abc",
+  "payload": {}
+}
+```
+
+## 9. 修改规则
+
+Orchestrator Session 允许直接写：
+
+- `workflows/*.task.md`
+- `runs/<runId>/workflow.lock.md`
+- `runs/<runId>/state.json`
+- `runs/<runId>/refs.json`
+- `runs/<runId>/events.jsonl`
+- `runs/<runId>/nodes/<nodeId>/report.md`
+- `runs/<runId>/nodes/<nodeId>/result.json`
+
+Subagent 除非父 session 明确授权，否则只应写节点本地文件。

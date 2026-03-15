@@ -1,4 +1,4 @@
 interface:
   display_name: "OpenTask"
-  short_description: "Manage OpenTask workflow registry runs"
-  default_prompt: "Use $opentask to bind this conversation to a long-running workflow and manage it through the OpenTask registry."
+  short_description: "Run root-session OpenTask workflows"
+  default_prompt: "Use $opentask to turn this OpenClaw conversation into a root-session workflow and keep it running through files, subagents, and cron."
