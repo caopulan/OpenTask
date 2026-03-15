@@ -1,5 +1,7 @@
 # AGENTS.md
 
+English | [中文](AGENTS.ZH.md)
+
 ## Working Agreement
 - Complete each coherent change set with a git commit before ending the task, unless the user explicitly says not to commit.
 - Use Conventional Commits for every commit message: `type(scope): summary`.

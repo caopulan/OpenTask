@@ -7,10 +7,18 @@
 <p align="center">File-backed workflow orchestration for long-running OpenClaw sessions.</p>
 
 <p align="center">
+  English ·
+  <a href="README.ZH.md">中文</a> ·
+  <a href="QUICKSTART.md">Quick Start Tutorial</a>
+</p>
+
+<p align="center">
   <a href="#installation">Installation</a> •
   <a href="#quick-start">Quick Start</a> •
+  <a href="QUICKSTART.md">Tutorial</a> •
   <a href="#workflow-format">Workflow Format</a> •
   <a href="#api">API</a> •
+  <a href="#documentation">Documentation</a> •
   <a href="#current-limitations">Current Limitations</a>
 </p>
 
@@ -24,6 +32,8 @@
 OpenTask is a web application and runtime for planning, executing, and auditing agent workflows on top of OpenClaw. It keeps the workflow DAG, run state projection, and append-only event log on disk, while OpenClaw handles execution facts such as sessions, child sessions, and cron-driven turns.
 
 It is built for developers and operators who need inspectable, long-running agent workflows instead of one-shot prompts. You can start from a plain task description or a versioned Markdown workflow, watch the graph evolve in a web UI, and keep driving the run until every node reaches a terminal state.
+
+Prefer a hands-on walkthrough first? Jump to [QUICKSTART.md](QUICKSTART.md).
 
 ## Features ✨
 
@@ -85,7 +95,16 @@ export OPENTASK_GATEWAY_DEVICE_AUTH_PATH=/path/to/device-auth.json
 
 ## Quick Start
 
-### 1. Start the backend
+Follow [QUICKSTART.md](QUICKSTART.md) for the full operator tutorial. The short version:
+
+### 1. Install project dependencies
+
+```bash
+uv sync --dev
+pnpm --dir web install
+```
+
+### 2. Start the backend
 
 ```bash
 uv run opentask-api
@@ -93,7 +112,7 @@ uv run opentask-api
 
 The API listens on `http://127.0.0.1:8000`.
 
-### 2. Start the web UI
+### 3. Start the web UI
 
 ```bash
 pnpm --dir web dev
@@ -101,7 +120,7 @@ pnpm --dir web dev
 
 The Vite app listens on `http://127.0.0.1:5174/` and proxies `/api` plus WebSocket traffic to the backend.
 
-### 3. Create a run from free-form task text
+### 4. Create a run from free-form task text
 
 ```bash
 curl -X POST http://127.0.0.1:8000/api/runs \
@@ -122,14 +141,14 @@ Example response:
 }
 ```
 
-### 4. Inspect runs and events
+### 5. Inspect runs and events
 
 ```bash
 curl http://127.0.0.1:8000/api/runs
 curl http://127.0.0.1:8000/api/runs/opentask-1234abcd/events
 ```
 
-### 5. Launch a run from a workflow file
+### 6. Launch a run from a workflow file
 
 ```bash
 curl -X POST http://127.0.0.1:8000/api/runs \
@@ -237,13 +256,20 @@ Common environment variables:
 | `OPENTASK_GATEWAY_DEVICE_IDENTITY_PATH` | `~/.openclaw/identity/device.json` | Device identity file |
 | `OPENTASK_GATEWAY_DEVICE_AUTH_PATH` | `~/.openclaw/identity/device-auth.json` | Device auth token store |
 
-## Documentation 📚
+## Documentation
 
 Start with these repository entry points:
 
 - [README.md](README.md) for setup and operating model
+- [README.ZH.md](README.ZH.md) for the Chinese overview
+- [QUICKSTART.md](QUICKSTART.md) for the fastest end-to-end tutorial
+- [QUICKSTART.ZH.md](QUICKSTART.ZH.md) for the Chinese tutorial
+- [AGENTS.md](AGENTS.md) for repository working rules
+- [AGENTS.ZH.md](AGENTS.ZH.md) for the Chinese working rules
 - [workflows/research-demo.task.md](workflows/research-demo.task.md) for a complete workflow example
+- [workflows/research-demo.task.ZH.md](workflows/research-demo.task.ZH.md) for the Chinese workflow example
 - [web/README.md](web/README.md) for frontend-specific notes
+- [web/README.ZH.md](web/README.ZH.md) for the Chinese frontend notes
 - [tests/test_service.py](tests/test_service.py) for orchestration behavior and regression coverage
 
 ## Current Limitations
@@ -259,18 +285,6 @@ OpenTask is usable, but it is not finished productized infrastructure yet.
 
 Issues and pull requests are welcome. For larger changes, open an issue first so the workflow and storage model stay coherent.
 
-Current development flow:
+## License
 
-```bash
-uv sync --dev
-pnpm --dir web install
-uv run pytest
-pnpm --dir web lint
-pnpm --dir web build
-```
-
-This repository also expects Conventional Commits and uses `uv` for Python environment and dependency management.
-
-## License 📄
-
-This repository does not currently include an open source license file. Until a license is added, treat the code as all rights reserved.
+No license file is published yet. Until one is added, treat this repository as all rights reserved.

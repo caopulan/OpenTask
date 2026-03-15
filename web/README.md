@@ -1,6 +1,10 @@
 # OpenTask Web
 
+English | [中文](README.ZH.md)
+
 The frontend is a React Flow based control room for OpenTask runs. It shows the run list, DAG, event timeline, and operator actions for pause, resume, retry, skip, approve, and force tick.
+
+For the full project walkthrough, start with [../QUICKSTART.md](../QUICKSTART.md).
 
 ## Commands
 
