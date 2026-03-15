@@ -10,7 +10,7 @@ from uuid import uuid4
 from .config import get_settings
 from .driver_protocol import driver_mutation_instructions, extract_driver_directives
 from .models import CreateRunRequest, NodeState, OpenClawRefs, RunEvent, RunState, WorkflowDefinition, utc_now
-from .openclaw_client import OpenClawClient
+from .openclaw_client import OpenClawClient, OpenClawGatewayError
 from .store import RunStore
 from .workflow import (
     build_starter_workflow,
@@ -404,7 +404,19 @@ class OpenTaskService:
         if not refs.driver_run_id:
             return refs
 
-        result = await self.gateway.wait_run(refs.driver_run_id, timeout_ms=0)
+        try:
+            result = await self.gateway.wait_run(refs.driver_run_id, timeout_ms=0)
+        except OpenClawGatewayError as exc:
+            self.store.append_event(
+                run_id,
+                RunEvent(
+                    event="driver.status.unavailable",
+                    runId=run_id,
+                    message=f"Driver status check failed: {exc}",
+                    payload={"runId": refs.driver_run_id},
+                ),
+            )
+            return refs
         status = result.get("status")
         if status in {None, "accepted", "started", "timeout"}:
             return refs
@@ -429,7 +441,18 @@ class OpenTaskService:
         workflow,
     ) -> tuple[RunState, object]:
         handled_ids = self._handled_driver_directive_ids(state.run_id)
-        history = await self.gateway.chat_history(state.driver_session_key, limit=20)
+        try:
+            history = await self.gateway.chat_history(state.driver_session_key, limit=20)
+        except OpenClawGatewayError as exc:
+            self.store.append_event(
+                state.run_id,
+                RunEvent(
+                    event="driver.history.unavailable",
+                    runId=state.run_id,
+                    message=f"Driver history unavailable: {exc}",
+                ),
+            )
+            return state, workflow
         directives = [directive for directive in extract_driver_directives(history) if directive.id not in handled_ids]
         if not directives:
             return state, workflow
@@ -498,13 +521,24 @@ class OpenTaskService:
         prompt = self._build_driver_turn_prompt(state, workflow)
         self.store.write_support_file(state.run_id, "driver.context.md", prompt)
         run_id = f"{state.run_id}-driver-{uuid4().hex[:8]}"
-        response = await self.gateway.send_chat(
-            session_key=state.driver_session_key,
-            message=prompt,
-            idempotency_key=run_id,
-            timeout_ms=self.settings.default_tick_timeout_ms,
-            thinking="low",
-        )
+        try:
+            response = await self.gateway.send_chat(
+                session_key=state.driver_session_key,
+                message=prompt,
+                idempotency_key=run_id,
+                timeout_ms=workflow.definition.driver.timeout_ms,
+                thinking="low",
+            )
+        except OpenClawGatewayError as exc:
+            self.store.append_event(
+                state.run_id,
+                RunEvent(
+                    event="driver.request.failed",
+                    runId=state.run_id,
+                    message=f"Driver request failed: {exc}",
+                ),
+            )
+            return refs
         resolved_run_id = str(response.get("runId") or response.get("id") or run_id)
         next_refs = refs.model_copy(
             update={

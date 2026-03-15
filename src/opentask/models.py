@@ -71,6 +71,7 @@ class WorkflowDefaults(OpenTaskModel):
 
 class DriverConfig(OpenTaskModel):
     cron: str = "*/2 * * * *"
+    timeout_ms: int = Field(default=45_000, alias="timeoutMs")
     wake_mode: Literal["now", "next-heartbeat"] = Field(default="now", alias="wakeMode")
     session_key_template: str = Field(
         default="session:workflow:{run_id}:driver",

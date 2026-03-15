@@ -47,6 +47,12 @@ Each node supports:
 - `prompt`
 - `outputs.mode`: `notify` or `report`
 
+Driver settings support:
+
+- `driver.cron`
+- `driver.timeoutMs`
+- `driver.wakeMode`
+
 See [workflows/research-demo.task.md](/Users/chunqiu/Documents/workspace/OpenTask/workflows/research-demo.task.md) for a complete sample.
 
 ## API Surface

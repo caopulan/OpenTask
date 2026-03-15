@@ -12,6 +12,7 @@ from uuid import uuid4
 import httpx
 import json5
 from websockets.asyncio.client import connect
+from websockets.exceptions import ConnectionClosed
 
 from .config import get_settings
 from .device_auth import (
@@ -91,70 +92,78 @@ class OpenClawClient:
         timeout_ms: int = 30_000,
     ) -> Any:
         connect_timeout = max(timeout_ms / 1000, 5)
-        async with connect(str(self.url), open_timeout=connect_timeout, max_size=25 * 1024 * 1024) as ws:
-            nonce: str | None = None
-            connect_id = uuid4().hex
-            request_id = uuid4().hex
-            connected = False
+        try:
+            async with connect(str(self.url), open_timeout=connect_timeout, max_size=25 * 1024 * 1024) as ws:
+                nonce: str | None = None
+                connect_id = uuid4().hex
+                request_id = uuid4().hex
+                connected = False
 
-            while True:
-                raw = await asyncio.wait_for(ws.recv(), timeout=connect_timeout)
-                frame = json.loads(raw)
-                frame_type = frame.get("type")
-                if frame_type == "event" and frame.get("event") == "connect.challenge":
-                    payload = frame.get("payload") or {}
-                    nonce = payload.get("nonce")
-                    await ws.send(
-                        json.dumps(
-                            {
-                                "type": "req",
-                                "id": connect_id,
-                                "method": "connect",
-                                "params": self._connect_params(nonce),
-                            }
+                while True:
+                    raw = await asyncio.wait_for(ws.recv(), timeout=connect_timeout)
+                    frame = json.loads(raw)
+                    frame_type = frame.get("type")
+                    if frame_type == "event" and frame.get("event") == "connect.challenge":
+                        payload = frame.get("payload") or {}
+                        nonce = payload.get("nonce")
+                        await ws.send(
+                            json.dumps(
+                                {
+                                    "type": "req",
+                                    "id": connect_id,
+                                    "method": "connect",
+                                    "params": self._connect_params(nonce),
+                                }
+                            )
                         )
-                    )
-                    continue
+                        continue
 
-                if frame_type != "res":
-                    continue
+                    if frame_type != "res":
+                        continue
 
-                if frame.get("id") == connect_id:
+                    if frame.get("id") == connect_id:
+                        if not frame.get("ok"):
+                            error = frame.get("error") or {}
+                            raise OpenClawGatewayError(
+                                error.get("code", "connect_failed"),
+                                error.get("message", "gateway connect failed"),
+                                error.get("details"),
+                            )
+                        self._persist_device_token(frame.get("payload"))
+                        connected = True
+                        await ws.send(
+                            json.dumps(
+                                {
+                                    "type": "req",
+                                    "id": request_id,
+                                    "method": method,
+                                    "params": params or {},
+                                }
+                            )
+                        )
+                        continue
+
+                    if not connected or frame.get("id") != request_id:
+                        continue
+
+                    payload = frame.get("payload")
+                    if expect_final and isinstance(payload, dict) and payload.get("status") == "accepted":
+                        continue
                     if not frame.get("ok"):
                         error = frame.get("error") or {}
                         raise OpenClawGatewayError(
-                            error.get("code", "connect_failed"),
-                            error.get("message", "gateway connect failed"),
+                            error.get("code", "request_failed"),
+                            error.get("message", f"gateway request failed: {method}"),
                             error.get("details"),
                         )
-                    self._persist_device_token(frame.get("payload"))
-                    connected = True
-                    await ws.send(
-                        json.dumps(
-                            {
-                                "type": "req",
-                                "id": request_id,
-                                "method": method,
-                                "params": params or {},
-                            }
-                        )
-                    )
-                    continue
-
-                if not connected or frame.get("id") != request_id:
-                    continue
-
-                payload = frame.get("payload")
-                if expect_final and isinstance(payload, dict) and payload.get("status") == "accepted":
-                    continue
-                if not frame.get("ok"):
-                    error = frame.get("error") or {}
-                    raise OpenClawGatewayError(
-                        error.get("code", "request_failed"),
-                        error.get("message", f"gateway request failed: {method}"),
-                        error.get("details"),
-                    )
-                return payload
+                    return payload
+        except OpenClawGatewayError:
+            raise
+        except (TimeoutError, OSError, ConnectionClosed) as exc:
+            raise OpenClawGatewayError(
+                "transport_error",
+                f"gateway transport failed during {method}: {exc}",
+            ) from exc
 
     async def send_chat(
         self,

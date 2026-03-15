@@ -16,6 +16,7 @@ from opentask.device_auth import (
     verify_device_signature,
 )
 from opentask.openclaw_client import OpenClawClient
+from opentask.openclaw_client import OpenClawGatewayError
 
 
 def write_identity_files(root: Path) -> tuple[Path, Path, str, str]:
@@ -239,3 +240,29 @@ async def test_openclaw_client_invokes_sessions_spawn_over_http(tmp_path: Path) 
         },
         "sessionKey": "agent:main:main",
     }
+
+
+@pytest.mark.asyncio
+async def test_openclaw_client_wraps_transport_disconnects(tmp_path: Path) -> None:
+    identity_path, auth_path, _, _ = write_identity_files(tmp_path)
+
+    async def handler(websocket) -> None:
+        await websocket.send(
+            json.dumps({"type": "event", "event": "connect.challenge", "payload": {"nonce": "nonce-123"}})
+        )
+        connect_frame = json.loads(await websocket.recv())
+        await websocket.send(json.dumps({"type": "res", "id": connect_frame["id"], "ok": True, "payload": {}}))
+        await websocket.close()
+
+    async with serve(handler, "127.0.0.1", 0) as server:
+        port = server.sockets[0].getsockname()[1]
+        client = OpenClawClient(
+            url=f"ws://127.0.0.1:{port}",
+            device_identity_path=identity_path,
+            device_auth_path=auth_path,
+            version="test",
+        )
+        with pytest.raises(OpenClawGatewayError) as excinfo:
+            await client.request("sessions.list", {})
+
+    assert excinfo.value.code == "transport_error"

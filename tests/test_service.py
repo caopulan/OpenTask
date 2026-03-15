@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from opentask.models import CreateRunRequest
+from opentask.openclaw_client import OpenClawGatewayError
 from opentask.service import OpenTaskService
 from opentask.store import RunStore
 from opentask.workflow import build_starter_workflow
@@ -59,6 +60,11 @@ class SlowGateway(FakeGateway):
     async def send_chat(self, **kwargs):
         await asyncio.sleep(0.05)
         return await super().send_chat(**kwargs)
+
+
+class FlakyHistoryGateway(FakeGateway):
+    async def chat_history(self, session_key: str, limit: int = 20):
+        raise OpenClawGatewayError("transport_error", "gateway transport failed during chat.history")
 
 
 @pytest.mark.asyncio
@@ -307,6 +313,18 @@ async def test_concurrent_ticks_do_not_duplicate_dispatch(tmp_path: Path) -> Non
     events = service.get_events(state.run_id)
     execute_started = [event for event in events if event.event == "node.started" and event.node_id == "execute-task"]
     assert len(execute_started) == 1
+
+
+@pytest.mark.asyncio
+async def test_driver_history_failure_does_not_abort_tick(tmp_path: Path) -> None:
+    gateway = FlakyHistoryGateway()
+    service = OpenTaskService(store=RunStore(runtime_root=tmp_path / ".opentask"), gateway=gateway)
+
+    state = await service.create_run(CreateRunRequest(taskText="Handle flaky history", title="Flaky history"))
+    state = await service.tick_run(state.run_id)
+
+    assert state.run_id.startswith("opentask-")
+    assert any(event.event == "driver.history.unavailable" for event in service.get_events(state.run_id))
 
 
 @pytest.mark.asyncio
