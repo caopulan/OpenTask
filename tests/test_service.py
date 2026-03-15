@@ -538,6 +538,30 @@ async def test_concurrent_ticks_do_not_duplicate_dispatch(tmp_path: Path) -> Non
 
 
 @pytest.mark.asyncio
+async def test_separate_services_share_run_file_lock(tmp_path: Path) -> None:
+    gateway = SlowGateway()
+    runtime_root = tmp_path / ".opentask"
+    workflow = build_starter_workflow("Cross service tick", "Run only once")
+    state, _ = RunStore(runtime_root=runtime_root).create_run(workflow)
+
+    service_a = OpenTaskService(store=RunStore(runtime_root=runtime_root), gateway=gateway)
+    service_b = OpenTaskService(store=RunStore(runtime_root=runtime_root), gateway=gateway)
+
+    await asyncio.gather(service_a.tick_run(state.run_id), service_b.tick_run(state.run_id))
+
+    execute_messages = [
+        message
+        for message in gateway.sent_messages
+        if message["session_key"].endswith(":node:execute-task")
+    ]
+    assert len(execute_messages) == 1
+
+    events = service_a.get_events(state.run_id)
+    execute_started = [event for event in events if event.event == "node.started" and event.node_id == "execute-task"]
+    assert len(execute_started) == 1
+
+
+@pytest.mark.asyncio
 async def test_driver_history_failure_does_not_abort_tick(tmp_path: Path) -> None:
     gateway = FlakyHistoryGateway()
     service = OpenTaskService(store=RunStore(runtime_root=tmp_path / ".opentask"), gateway=gateway)

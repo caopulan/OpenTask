@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 from collections import defaultdict
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Protocol
 from uuid import uuid4
@@ -11,6 +12,7 @@ from .config import get_settings
 from .driver_protocol import driver_mutation_instructions, extract_driver_directives
 from .models import CreateRunRequest, NodeState, OpenClawRefs, RunEvent, RunState, WorkflowDefinition, utc_now
 from .openclaw_client import OpenClawClient, OpenClawGatewayError
+from .run_lock import RunFileLock
 from .session_keys import qualify_agent_session_key
 from .store import RunStore
 from .transcript import extract_last_assistant_final_text
@@ -89,6 +91,7 @@ class OpenTaskService:
         self.project_root = project_root or self.settings.project_root
         self.store = store or RunStore()
         self.gateway = gateway or OpenClawClient()
+        self.run_file_lock = RunFileLock(self.store.runtime_root)
         self._subscribers: dict[str, set[asyncio.Queue[dict]]] = defaultdict(set)
         self._run_locks: dict[str, asyncio.Lock] = {}
 
@@ -104,10 +107,9 @@ class OpenTaskService:
     async def create_run(self, request: CreateRunRequest) -> RunState:
         parsed = self._resolve_workflow(request)
         parsed, added_events = ensure_summary_node(parsed)
-        state, refs = self.store.create_run(parsed)
-        lock = self._lock_for_run(state.run_id)
-
-        async with lock:
+        run_id = self.store.next_run_id()
+        async with self._run_scope(run_id):
+            state, refs = self.store.create_run(parsed, run_id=run_id)
             for event in added_events:
                 self.store.append_event(
                     state.run_id,
@@ -124,7 +126,7 @@ class OpenTaskService:
         return state
 
     async def tick_run(self, run_id: str) -> RunState:
-        async with self._lock_for_run(run_id):
+        async with self._run_scope(run_id):
             return await self._tick_run_unlocked(run_id)
 
     async def _tick_run_unlocked(self, run_id: str) -> RunState:
@@ -150,7 +152,7 @@ class OpenTaskService:
         return state
 
     async def pause_run(self, run_id: str) -> RunState:
-        async with self._lock_for_run(run_id):
+        async with self._run_scope(run_id):
             state = self.store.load_state(run_id)
             refs = self.store.load_openclaw_refs(run_id)
             if refs.cron_job_id:
@@ -165,7 +167,7 @@ class OpenTaskService:
             return state
 
     async def resume_run(self, run_id: str) -> RunState:
-        async with self._lock_for_run(run_id):
+        async with self._run_scope(run_id):
             state = self.store.load_state(run_id)
             refs = self.store.load_openclaw_refs(run_id)
             if refs.cron_job_id:
@@ -180,7 +182,7 @@ class OpenTaskService:
             return state
 
     async def retry_node(self, run_id: str, node_id: str) -> RunState:
-        async with self._lock_for_run(run_id):
+        async with self._run_scope(run_id):
             state = self.store.load_state(run_id)
             nodes = []
             for node in state.nodes:
@@ -212,7 +214,7 @@ class OpenTaskService:
             return await self._tick_run_unlocked(run_id)
 
     async def skip_node(self, run_id: str, node_id: str) -> RunState:
-        async with self._lock_for_run(run_id):
+        async with self._run_scope(run_id):
             state = self.store.load_state(run_id)
             nodes = []
             for node in state.nodes:
@@ -240,7 +242,7 @@ class OpenTaskService:
             return await self._tick_run_unlocked(run_id)
 
     async def approve_node(self, run_id: str, node_id: str) -> RunState:
-        async with self._lock_for_run(run_id):
+        async with self._run_scope(run_id):
             state = self.store.load_state(run_id)
             nodes = []
             for node in state.nodes:
@@ -273,7 +275,7 @@ class OpenTaskService:
             return await self._tick_run_unlocked(run_id)
 
     async def force_tick(self, run_id: str) -> RunState:
-        async with self._lock_for_run(run_id):
+        async with self._run_scope(run_id):
             refs = self.store.load_openclaw_refs(run_id)
             if refs.cron_job_id:
                 await self.gateway.cron_run(refs.cron_job_id)
@@ -1217,6 +1219,12 @@ class OpenTaskService:
             lock = asyncio.Lock()
             self._run_locks[run_id] = lock
         return lock
+
+    @asynccontextmanager
+    async def _run_scope(self, run_id: str):
+        async with self._lock_for_run(run_id):
+            async with self.run_file_lock.hold(run_id):
+                yield
 
     def _session_key_for_node(self, run_id: str, node_id: str, kind: str, agent_id: str) -> str:
         suffix = "subagent" if kind == "subagent" else "node"

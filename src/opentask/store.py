@@ -25,9 +25,14 @@ class RunStore:
             runs.append(self._read_json(state_file, RunState))
         return sorted(runs, key=lambda item: item.updated_at, reverse=True)
 
-    def create_run(self, workflow: ParsedWorkflow) -> tuple[RunState, OpenClawRefs]:
-        run_id = self._next_run_id()
+    def next_run_id(self) -> str:
+        return self._next_run_id()
+
+    def create_run(self, workflow: ParsedWorkflow, *, run_id: str | None = None) -> tuple[RunState, OpenClawRefs]:
+        run_id = run_id or self.next_run_id()
         run_dir = self._run_dir(run_id)
+        if (run_dir / "state.json").exists():
+            raise FileExistsError(f"run already exists: {run_id}")
         (run_dir / "nodes").mkdir(parents=True, exist_ok=True)
 
         nodes: list[NodeState] = []
