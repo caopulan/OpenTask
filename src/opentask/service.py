@@ -65,6 +65,16 @@ class GatewayProtocol(Protocol):
 
 
 TERMINAL_STATUSES = {"completed", "failed", "skipped"}
+DRIVER_BOOKKEEPING_EVENTS = {
+    "driver.requested",
+    "driver.completed",
+    "driver.failed",
+    "driver.request.failed",
+    "driver.status.unavailable",
+    "driver.history.unavailable",
+    "driver.directive.applied",
+    "driver.directive.rejected",
+}
 
 
 class OpenTaskService:
@@ -520,7 +530,8 @@ class OpenTaskService:
             return refs
 
         event_count = len(self.store.load_events(state.run_id))
-        if event_count <= refs.driver_requested_event_count:
+        activity_count = self._driver_activity_count(state.run_id)
+        if activity_count <= refs.driver_requested_activity_count:
             return refs
 
         prompt = self._build_driver_turn_prompt(state, workflow)
@@ -549,6 +560,7 @@ class OpenTaskService:
             update={
                 "driver_run_id": resolved_run_id,
                 "driver_requested_event_count": event_count,
+                "driver_requested_activity_count": activity_count,
             }
         )
         self.store.append_event(
@@ -562,6 +574,10 @@ class OpenTaskService:
         )
         self.store.write_openclaw_refs(state.run_id, next_refs)
         return next_refs
+
+    def _driver_activity_count(self, run_id: str) -> int:
+        events = self.store.load_events(run_id)
+        return sum(1 for event in events if event.event not in DRIVER_BOOKKEEPING_EVENTS)
 
     def _advance_waiting_nodes(self, state: RunState) -> RunState:
         changed = False

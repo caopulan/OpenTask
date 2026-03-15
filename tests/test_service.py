@@ -68,6 +68,17 @@ class FlakyHistoryGateway(FakeGateway):
         raise OpenClawGatewayError("transport_error", "gateway transport failed during chat.history")
 
 
+class DriverIdleGateway(FakeGateway):
+    async def send_chat(self, **kwargs):
+        self.sent_messages.append(kwargs)
+        run_id = kwargs["idempotency_key"]
+        if kwargs["session_key"].endswith(":driver"):
+            self.wait_results[run_id] = {"status": "ok", "runId": run_id}
+        else:
+            self.wait_results[run_id] = {"status": "timeout", "runId": run_id}
+        return {"status": "started", "runId": run_id}
+
+
 @pytest.mark.asyncio
 async def test_create_run_bootstraps_cron_and_summary(tmp_path: Path) -> None:
     gateway = FakeGateway()
@@ -403,6 +414,7 @@ async def test_tick_requests_driver_turn_when_run_changes(tmp_path: Path) -> Non
     refs = service.store.load_openclaw_refs(state.run_id)
     assert refs.driver_run_id is not None
     assert refs.driver_requested_event_count >= 1
+    assert refs.driver_requested_activity_count >= 1
     assert (service.store.runs_root / state.run_id / "driver.context.md").exists()
 
 
@@ -456,6 +468,25 @@ async def test_run_can_resume_from_runtime_store_after_restart(tmp_path: Path) -
     recovered = await restarted.tick_run(created.run_id)
     assert recovered.run_id == created.run_id
     assert recovered.status == "completed"
+
+
+@pytest.mark.asyncio
+async def test_driver_does_not_requeue_on_bookkeeping_events_alone(tmp_path: Path) -> None:
+    gateway = DriverIdleGateway()
+    service = OpenTaskService(store=RunStore(runtime_root=tmp_path / ".opentask"), gateway=gateway)
+
+    state = await service.create_run(CreateRunRequest(taskText="Keep running", title="Driver idle"))
+    first_events = service.get_events(state.run_id)
+    assert len([event for event in first_events if event.event == "driver.requested"]) == 1
+
+    state = await service.tick_run(state.run_id)
+    second_events = service.get_events(state.run_id)
+    assert len([event for event in second_events if event.event == "driver.requested"]) == 1
+
+    state = await service.tick_run(state.run_id)
+    third_events = service.get_events(state.run_id)
+    assert len([event for event in third_events if event.event == "driver.requested"]) == 1
+    assert state.status == "running"
 
 
 def test_extract_last_assistant_final_text_ignores_internal_blocks() -> None:

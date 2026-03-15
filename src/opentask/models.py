@@ -172,6 +172,7 @@ class OpenClawRefs(OpenTaskModel):
     cron_job_id: str | None = Field(default=None, alias="cronJobId")
     driver_run_id: str | None = Field(default=None, alias="driverRunId")
     driver_requested_event_count: int = Field(default=0, alias="driverRequestedEventCount")
+    driver_requested_activity_count: int = Field(default=0, alias="driverRequestedActivityCount")
     node_sessions: dict[str, str] = Field(default_factory=dict, alias="nodeSessions")
     child_sessions: dict[str, str] = Field(default_factory=dict, alias="childSessions")
     node_run_ids: dict[str, str] = Field(default_factory=dict, alias="nodeRunIds")
