@@ -79,6 +79,29 @@ class DriverIdleGateway(FakeGateway):
         return {"status": "started", "runId": run_id}
 
 
+class DelayedDriverMutationGateway(FakeGateway):
+    def __init__(self) -> None:
+        super().__init__()
+        self.driver_wait_counts: dict[str, int] = {}
+
+    async def send_chat(self, **kwargs):
+        self.sent_messages.append(kwargs)
+        run_id = kwargs["idempotency_key"]
+        if kwargs["session_key"].endswith(":driver"):
+            self.driver_wait_counts[run_id] = 0
+        else:
+            self.wait_results[run_id] = {"status": "ok", "runId": run_id}
+        return {"status": "started", "runId": run_id}
+
+    async def wait_run(self, run_id: str, timeout_ms: int):
+        if run_id in self.driver_wait_counts:
+            self.driver_wait_counts[run_id] += 1
+            if self.driver_wait_counts[run_id] == 1:
+                return {"status": "timeout", "runId": run_id}
+            return {"status": "ok", "runId": run_id}
+        return await super().wait_run(run_id, timeout_ms)
+
+
 @pytest.mark.asyncio
 async def test_create_run_bootstraps_cron_and_summary(tmp_path: Path) -> None:
     gateway = FakeGateway()
@@ -395,6 +418,80 @@ async def test_driver_directive_can_add_and_rewire_nodes(tmp_path: Path) -> None
     state = await service.tick_run(state.run_id)
     assert [node.id for node in state.nodes].count("review") == 1
     assert any("Review the draft output" in item["message"] for item in gateway.sent_messages)
+
+
+@pytest.mark.asyncio
+async def test_driver_directive_normalizes_minimal_add_node_payload(tmp_path: Path) -> None:
+    gateway = FakeGateway()
+    service = OpenTaskService(store=RunStore(runtime_root=tmp_path / ".opentask"), gateway=gateway)
+
+    state = await service.create_run(CreateRunRequest(taskText="Draft an implementation plan", title="Driver normalize"))
+    gateway.session_histories[state.driver_session_key] = [
+        {
+            "role": "assistant",
+                "content": (
+                    "<opentask-mutation>"
+                    '{"id":"drv-2","summary":"add review stage","mutations":['
+                    '{"kind":"add_node","node":{"id":"review-draft","kind":"session_turn",'
+                    '"needs":["execute-task"]}},'
+                    '{"kind":"rewire_node","nodeId":"summary","needs":["review-draft"]}'
+                    "]}"
+                    "</opentask-mutation>"
+            ),
+        }
+    ]
+
+    state = await service.tick_run(state.run_id)
+
+    review = next(node for node in state.nodes if node.id == "review-draft")
+    summary = next(node for node in state.nodes if node.id == "summary")
+    workflow = service.store.load_workflow_lock(state.run_id)
+    review_definition = next(node for node in workflow.definition.nodes if node.id == "review-draft")
+
+    assert review.status == "running"
+    assert summary.status == "pending"
+    assert summary.needs == ["review-draft"]
+    assert review_definition.title == "Review Draft"
+    assert review_definition.outputs.mode == "report"
+    assert review_definition.outputs.required_files == ["nodes/review-draft/report.md"]
+    assert "Review the dependency artifacts" in review_definition.prompt
+
+
+@pytest.mark.asyncio
+async def test_ready_nodes_wait_for_inflight_driver_review(tmp_path: Path) -> None:
+    gateway = DelayedDriverMutationGateway()
+    service = OpenTaskService(store=RunStore(runtime_root=tmp_path / ".opentask"), gateway=gateway)
+
+    state = await service.create_run(CreateRunRequest(taskText="Draft an implementation plan", title="Driver delay"))
+    gateway.session_histories[state.driver_session_key] = []
+
+    state = await service.tick_run(state.run_id)
+    summary = next(node for node in state.nodes if node.id == "summary")
+    assert summary.status == "ready"
+    assert state.status == "running"
+
+    gateway.session_histories[state.driver_session_key] = [
+        {
+            "role": "assistant",
+            "content": (
+                "<opentask-mutation>"
+                '{"id":"drv-3","summary":"add review stage","mutations":['
+                '{"kind":"add_node","node":{"id":"review-draft","kind":"session_turn",'
+                '"needs":["execute-task"]}},'
+                '{"kind":"rewire_node","nodeId":"summary","needs":["review-draft"]}'
+                "]}"
+                "</opentask-mutation>"
+            ),
+        }
+    ]
+
+    state = await service.tick_run(state.run_id)
+    review = next(node for node in state.nodes if node.id == "review-draft")
+    summary = next(node for node in state.nodes if node.id == "summary")
+
+    assert review.status == "running"
+    assert summary.status == "pending"
+    assert summary.needs == ["review-draft"]
 
 
 @pytest.mark.asyncio

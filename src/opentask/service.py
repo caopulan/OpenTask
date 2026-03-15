@@ -784,6 +784,9 @@ class OpenTaskService:
             if node.status != "ready":
                 updated_nodes.append(node)
                 continue
+            if refs.driver_run_id:
+                updated_nodes.append(node)
+                continue
             definition = definitions[node.id]
             if node.kind == "approval":
                 changed = True
