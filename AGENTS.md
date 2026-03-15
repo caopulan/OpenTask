@@ -4,6 +4,7 @@ English | [中文](AGENTS.ZH.md)
 
 ## Working Agreement
 - Complete each coherent change set with a git commit before ending the task, unless the user explicitly says not to commit.
+- After each commit, immediately push the current branch to the configured remote unless the user explicitly says not to push.
 - Use Conventional Commits for every commit message: `type(scope): summary`.
 - Keep commit subjects imperative, concise, and lowercase after the colon.
 - Preferred types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`, `build`, `ci`.

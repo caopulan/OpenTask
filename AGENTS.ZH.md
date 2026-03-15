@@ -4,6 +4,7 @@
 
 ## 协作约定
 - 每完成一个完整的变更切片，就在结束任务前提交一次 git commit，除非用户明确要求不要提交。
+- 每次 commit 之后都立即把当前分支 push 到配置好的远程，除非用户明确要求不要 push。
 - 所有 commit message 都使用 Conventional Commits：`type(scope): summary`。
 - commit subject 使用祈使句，冒号后保持简洁，并统一小写风格。
 - 推荐类型：`feat`、`fix`、`docs`、`refactor`、`test`、`chore`、`build`、`ci`。
