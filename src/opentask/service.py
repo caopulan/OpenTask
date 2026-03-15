@@ -117,11 +117,14 @@ class OpenTaskService:
             return state
 
         state = await self._sync_running_nodes(state)
+        refs = await self._sync_driver_run(state.run_id, refs)
         state = self._advance_waiting_nodes(state)
         state, workflow = await self._apply_driver_directives(state, workflow)
         state = self._promote_ready_nodes(state)
         state = await self._dispatch_ready_nodes(state, workflow.definition, refs)
+        refs = await self._maybe_request_driver_turn(state, workflow, refs)
         state = await self._finalize_if_terminal(state)
+        self.store.write_openclaw_refs(state.run_id, refs)
         self.store.write_state(state)
         await self._publish(state)
         return state
@@ -384,6 +387,29 @@ class OpenTaskService:
             last_event="node.completed",
         )
 
+    async def _sync_driver_run(self, run_id: str, refs: OpenClawRefs) -> OpenClawRefs:
+        if not refs.driver_run_id:
+            return refs
+
+        result = await self.gateway.wait_run(refs.driver_run_id, timeout_ms=0)
+        status = result.get("status")
+        if status in {None, "accepted", "started", "timeout"}:
+            return refs
+
+        event_name = "driver.completed" if status == "ok" else "driver.failed"
+        self.store.append_event(
+            run_id,
+            RunEvent(
+                event=event_name,
+                runId=run_id,
+                message=f"Driver run {refs.driver_run_id} finished with status={status}.",
+                payload={"runId": refs.driver_run_id, "result": result},
+            ),
+        )
+        next_refs = refs.model_copy(update={"driver_run_id": None})
+        self.store.write_openclaw_refs(run_id, next_refs)
+        return next_refs
+
     async def _apply_driver_directives(
         self,
         state: RunState,
@@ -438,6 +464,52 @@ class OpenTaskService:
         self.store.write_workflow_lock(state.run_id, next_workflow)
         next_state = self.store.update_state_timestamp(next_state, last_event="driver.directive.applied")
         return next_state, next_workflow
+
+    async def _maybe_request_driver_turn(
+        self,
+        state: RunState,
+        workflow,
+        refs: OpenClawRefs,
+    ) -> OpenClawRefs:
+        if state.status != "running" or refs.driver_run_id:
+            return refs
+
+        nonterminal_nodes = [node for node in state.nodes if node.status not in TERMINAL_STATUSES]
+        if not nonterminal_nodes:
+            return refs
+
+        event_count = len(self.store.load_events(state.run_id))
+        if event_count <= refs.driver_requested_event_count:
+            return refs
+
+        prompt = self._build_driver_turn_prompt(state, workflow)
+        self.store.write_support_file(state.run_id, "driver.context.md", prompt)
+        run_id = f"{state.run_id}-driver-{uuid4().hex[:8]}"
+        response = await self.gateway.send_chat(
+            session_key=state.driver_session_key,
+            message=prompt,
+            idempotency_key=run_id,
+            timeout_ms=self.settings.default_tick_timeout_ms,
+            thinking="low",
+        )
+        resolved_run_id = str(response.get("runId") or response.get("id") or run_id)
+        next_refs = refs.model_copy(
+            update={
+                "driver_run_id": resolved_run_id,
+                "driver_requested_event_count": event_count,
+            }
+        )
+        self.store.append_event(
+            state.run_id,
+            RunEvent(
+                event="driver.requested",
+                runId=state.run_id,
+                message="Requested autonomous driver review.",
+                payload={"runId": resolved_run_id, "response": response},
+            ),
+        )
+        self.store.write_openclaw_refs(state.run_id, next_refs)
+        return next_refs
 
     def _advance_waiting_nodes(self, state: RunState) -> RunState:
         changed = False
@@ -881,6 +953,61 @@ class OpenTaskService:
             "Never repeat completed nodes. Advance only ready nodes, inspect running nodes, and record all mutations in events.jsonl.\n"
             f"{driver_mutation_instructions()}"
         )
+
+    def _build_driver_turn_prompt(self, state: RunState, workflow) -> str:
+        node_lines = []
+        for node in state.nodes:
+            needs = ", ".join(node.needs) if node.needs else "none"
+            artifacts = ", ".join(node.artifact_paths) if node.artifact_paths else "none"
+            node_lines.append(
+                f"- {node.id} | kind={node.kind} | status={node.status} | needs={needs} | artifacts={artifacts}"
+            )
+
+        recent_events = self.store.load_events(state.run_id, limit=8)
+        event_lines = [
+            f"- {event.event}"
+            + (f" node={event.node_id}" if event.node_id else "")
+            + (f" msg={event.message}" if event.message else "")
+            for event in recent_events
+        ]
+
+        artifact_sections = []
+        for node in state.nodes:
+            if node.outputs_mode != "report" or node.status not in TERMINAL_STATUSES:
+                continue
+            for artifact in node.artifact_paths:
+                if not artifact.endswith(".md"):
+                    continue
+                artifact_path = self.store.runs_root / state.run_id / artifact
+                if not artifact_path.exists():
+                    continue
+                preview = artifact_path.read_text(encoding="utf-8")[:1200].strip()
+                if not preview:
+                    continue
+                artifact_sections.append(f"## {artifact}\n\n{preview}")
+
+        body = workflow.body.strip() or "(none)"
+        sections = [
+            f"You are the autonomous workflow driver for OpenTask run {state.run_id}.",
+            "Review the current workflow snapshot and decide whether the graph should change.",
+            "If you want no graph changes, reply exactly NO_CHANGE.",
+            driver_mutation_instructions(),
+            "",
+            f"Workflow ID: {state.workflow_id}",
+            f"Title: {state.title}",
+            "",
+            "Workflow body:",
+            body,
+            "",
+            "Current nodes:",
+            "\n".join(node_lines) if node_lines else "- none",
+            "",
+            "Recent events:",
+            "\n".join(event_lines) if event_lines else "- none",
+        ]
+        if artifact_sections:
+            sections.extend(["", "Artifact previews:", "\n\n".join(artifact_sections)])
+        return "\n".join(sections).strip() + "\n"
 
     def _handled_driver_directive_ids(self, run_id: str) -> set[str]:
         handled: set[str] = set()

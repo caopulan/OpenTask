@@ -29,6 +29,7 @@ Each run lives under `.opentask/runs/<runId>/`:
 - `state.json`: current run projection
 - `events.jsonl`: append-only audit trail
 - `openclaw.json`: planner, driver, cron, and node session references
+- `driver.context.md`: latest autonomous driver review prompt
 - `nodes/<nodeId>/`: per-node artifacts and reports
 
 The runtime store and local planning/reference notes are intentionally ignored by git.
@@ -63,6 +64,7 @@ See [workflows/research-demo.task.md](/Users/chunqiu/Documents/workspace/OpenTas
 - `session_turn` nodes use persistent per-node sessions.
 - `subagent` nodes use `sessions_spawn` and record `childSessionKey` in run state.
 - Driver sessions can emit `<opentask-mutation>{...}</opentask-mutation>` blocks to add or rewire nodes while a run is active.
+- The backend automatically sends driver review turns when run state changes and tracks the active driver run in `openclaw.json`.
 - Wait and approval nodes are resolved from local run state plus operator actions.
 
 ## Verification

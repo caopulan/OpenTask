@@ -203,7 +203,10 @@ nodes:
     assert delegate.child_session_key == "agent:main:subagent:1"
     assert gateway.spawned_sessions[0]["task"] == "Implement the delegated task"
     assert gateway.spawned_sessions[0]["cwd"] == str(service.project_root)
-    assert all("Implement the delegated task" not in msg["message"] for msg in gateway.sent_messages)
+    assert not any(
+        msg["session_key"].endswith(":node:delegate") and msg["message"] == "Implement the delegated task"
+        for msg in gateway.sent_messages
+    )
 
     state = await service.tick_run(state.run_id)
     delegate = next(node for node in state.nodes if node.id == "delegate")
@@ -254,6 +257,26 @@ async def test_driver_directive_can_add_and_rewire_nodes(tmp_path: Path) -> None
     state = await service.tick_run(state.run_id)
     assert [node.id for node in state.nodes].count("review") == 1
     assert any(item["message"] == "Review the draft output" for item in gateway.sent_messages)
+
+
+@pytest.mark.asyncio
+async def test_tick_requests_driver_turn_when_run_changes(tmp_path: Path) -> None:
+    gateway = FakeGateway()
+    service = OpenTaskService(store=RunStore(runtime_root=tmp_path / ".opentask"), gateway=gateway)
+
+    state = await service.create_run(CreateRunRequest(taskText="Prepare a plan", title="Driver auto prompt"))
+
+    driver_messages = [
+        message for message in gateway.sent_messages if message["session_key"] == state.driver_session_key
+    ]
+    assert driver_messages
+    assert "Current nodes:" in driver_messages[-1]["message"]
+    assert "If you want no graph changes, reply exactly NO_CHANGE." in driver_messages[-1]["message"]
+
+    refs = service.store.load_openclaw_refs(state.run_id)
+    assert refs.driver_run_id is not None
+    assert refs.driver_requested_event_count >= 1
+    assert (service.store.runs_root / state.run_id / "driver.context.md").exists()
 
 
 @pytest.mark.asyncio
