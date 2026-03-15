@@ -6,6 +6,7 @@ from secrets import token_hex
 
 from .config import get_settings
 from .models import NodeState, OpenClawRefs, ParsedWorkflow, RunEvent, RunState, utc_now
+from .session_keys import render_agent_session_key
 from .workflow import ensure_relative_paths, normalize_artifact_paths, render_workflow_markdown
 
 
@@ -53,8 +54,16 @@ class RunStore:
             workflowId=workflow.definition.workflow_id,
             title=workflow.definition.title,
             status="running",
-            plannerSessionKey=workflow.definition.driver.planner_session_key_template.format(run_id=run_id),
-            driverSessionKey=workflow.definition.driver.session_key_template.format(run_id=run_id),
+            plannerSessionKey=render_agent_session_key(
+                workflow.definition.driver.planner_session_key_template,
+                run_id=run_id,
+                agent_id=workflow.definition.defaults.agent_id,
+            ),
+            driverSessionKey=render_agent_session_key(
+                workflow.definition.driver.session_key_template,
+                run_id=run_id,
+                agent_id=workflow.definition.defaults.agent_id,
+            ),
             nodes=nodes,
             lastEvent="run.created",
         )

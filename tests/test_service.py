@@ -77,7 +77,15 @@ async def test_create_run_bootstraps_cron_and_summary(tmp_path: Path) -> None:
     assert state.cron_job_id is not None
     assert state.status == "running"
     assert any(node.kind == "summary" for node in state.nodes)
-    assert any(msg["session_key"].endswith(":planner") for msg in gateway.sent_messages)
+    assert state.driver_session_key.startswith("agent:opentask:session:workflow:")
+    assert any(msg["session_key"].startswith("agent:opentask:session:workflow:") for msg in gateway.sent_messages)
+    execute_prompt = next(
+        msg["message"]
+        for msg in gateway.sent_messages
+        if msg["session_key"].endswith(":node:execute-task")
+    )
+    assert ".opentask/runs/" in execute_prompt
+    assert "Preferred artifact paths:" in execute_prompt
 
 
 @pytest.mark.asyncio
@@ -215,7 +223,8 @@ nodes:
     delegate = next(node for node in state.nodes if node.id == "delegate")
     assert delegate.status == "running"
     assert delegate.child_session_key == "agent:main:subagent:1"
-    assert gateway.spawned_sessions[0]["task"] == "Implement the delegated task"
+    assert "Implement the delegated task" in gateway.spawned_sessions[0]["task"]
+    assert ".opentask/runs/" in gateway.spawned_sessions[0]["task"]
     assert gateway.spawned_sessions[0]["cwd"] == str(service.project_root)
     assert not any(
         msg["session_key"].endswith(":node:delegate") and msg["message"] == "Implement the delegated task"
@@ -228,6 +237,61 @@ nodes:
     assert delegate.status == "completed"
     assert finish.status == "completed"
     assert state.status == "completed"
+
+
+@pytest.mark.asyncio
+async def test_custom_agent_id_scopes_run_sessions(tmp_path: Path) -> None:
+    gateway = FakeGateway()
+    service = OpenTaskService(store=RunStore(runtime_root=tmp_path / ".opentask"), gateway=gateway)
+    markdown = """---
+workflowId: custom-agent-demo
+title: Custom agent demo
+defaults:
+  agentId: ops
+nodes:
+  - id: gather
+    title: Gather
+    kind: session_turn
+    needs: []
+    prompt: Gather context
+    outputs:
+      mode: report
+---
+"""
+
+    state = await service.create_run(CreateRunRequest(workflowMarkdown=markdown))
+
+    assert state.driver_session_key.startswith("agent:ops:session:workflow:")
+    assert any(msg["session_key"].startswith("agent:ops:session:workflow:") for msg in gateway.sent_messages)
+
+
+@pytest.mark.asyncio
+async def test_existing_node_report_is_not_overwritten_on_completion(tmp_path: Path) -> None:
+    gateway = FakeGateway()
+    service = OpenTaskService(store=RunStore(runtime_root=tmp_path / ".opentask"), gateway=gateway)
+
+    state = await service.create_run(CreateRunRequest(taskText="Preserve report", title="Preserve report"))
+    report_path = tmp_path / ".opentask" / "runs" / state.run_id / "nodes" / "execute-task" / "report.md"
+    report_path.write_text("# Real report\n\nKeep this content.\n", encoding="utf-8")
+
+    state = await service.tick_run(state.run_id)
+    execute = next(node for node in state.nodes if node.id == "execute-task")
+
+    assert execute.status == "completed"
+    assert report_path.read_text(encoding="utf-8") == "# Real report\n\nKeep this content.\n"
+
+
+@pytest.mark.asyncio
+async def test_summary_artifact_path_is_not_duplicated(tmp_path: Path) -> None:
+    gateway = FakeGateway()
+    service = OpenTaskService(store=RunStore(runtime_root=tmp_path / ".opentask"), gateway=gateway)
+
+    state = await service.create_run(CreateRunRequest(taskText="Summarize once", title="Summary dedupe"))
+    state = await service.tick_run(state.run_id)
+    summary = next(node for node in state.nodes if node.id == "summary")
+
+    assert summary.status == "completed"
+    assert summary.artifact_paths == ["nodes/summary/report.md"]
 
 
 @pytest.mark.asyncio
@@ -270,7 +334,7 @@ async def test_driver_directive_can_add_and_rewire_nodes(tmp_path: Path) -> None
 
     state = await service.tick_run(state.run_id)
     assert [node.id for node in state.nodes].count("review") == 1
-    assert any(item["message"] == "Review the draft output" for item in gateway.sent_messages)
+    assert any("Review the draft output" in item["message"] for item in gateway.sent_messages)
 
 
 @pytest.mark.asyncio

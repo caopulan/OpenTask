@@ -6,6 +6,7 @@ from typing import Iterable
 
 import yaml
 
+from .config import get_settings
 from .models import ParsedWorkflow, RunEvent, WorkflowDefinition, WorkflowNode, WorkflowOutputs
 
 
@@ -132,10 +133,14 @@ def ensure_summary_node(parsed: ParsedWorkflow) -> tuple[ParsedWorkflow, list[Ru
 
 
 def build_starter_workflow(title: str, task_text: str) -> ParsedWorkflow:
+    settings = get_settings()
     definition = WorkflowDefinition.model_validate(
         {
             "workflowId": slugify(title),
             "title": title,
+            "defaults": {
+                "agentId": settings.opentask_agent_id,
+            },
             "driver": {
                 "cron": "*/2 * * * *",
                 "wakeMode": "now",

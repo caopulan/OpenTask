@@ -17,6 +17,18 @@ cron_ref.md
 # OpenTask runtime state
 .opentask/
 
+# OpenClaw workspace runtime files
+.openclaw/
+AGENTS.local.md
+BOOTSTRAP.md
+HEARTBEAT.md
+IDENTITY.md
+MEMORY.md
+SOUL.md
+TOOLS.md
+USER.md
+memory/
+
 # Frontend artifacts
 web/node_modules/
 web/dist/

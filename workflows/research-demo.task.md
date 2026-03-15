@@ -2,7 +2,7 @@
 workflowId: research-demo
 title: "Research demo workflow"
 defaults:
-  agentId: main
+  agentId: opentask
   timeoutMs: 30000
 driver:
   cron: "*/2 * * * *"

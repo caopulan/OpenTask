@@ -104,6 +104,7 @@ def test_ensure_summary_node_adds_terminal_summary() -> None:
     parsed = build_starter_workflow("Starter", "Finish the task")
     summary = parsed.definition.nodes[-1]
 
+    assert parsed.definition.defaults.agent_id == "opentask"
     assert summary.kind == "summary"
     assert summary.needs == ["execute-task"]
 

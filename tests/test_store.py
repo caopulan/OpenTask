@@ -18,7 +18,9 @@ def test_run_store_creates_expected_files(tmp_path: Path) -> None:
     assert (run_dir / "events.jsonl").exists()
     assert (run_dir / "openclaw.json").exists()
     assert (run_dir / "nodes" / "execute-task").exists()
+    assert refs.driver_session_key.startswith("agent:opentask:session:workflow:")
     assert refs.driver_session_key.endswith(":driver")
+    assert state.planner_session_key.startswith("agent:opentask:session:workflow:")
     assert state.nodes[0].status == "ready"
 
 

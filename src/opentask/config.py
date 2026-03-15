@@ -39,6 +39,7 @@ class Settings(BaseModel):
     project_root: Path = Field(default_factory=lambda: Path.cwd())
     runtime_root: Path = Field(default_factory=lambda: Path.cwd() / ".opentask")
     workflows_root: Path = Field(default_factory=lambda: Path.cwd() / "workflows")
+    opentask_agent_id: str = Field(default_factory=lambda: _env_first("OPENTASK_AGENT_ID") or "opentask")
     gateway_url: str = Field(default_factory=lambda: _env_first("OPENTASK_GATEWAY_URL", "OPENCLAW_GATEWAY_URL") or "ws://127.0.0.1:18789")
     gateway_token: str | None = Field(default_factory=lambda: _env_first("OPENTASK_GATEWAY_TOKEN", "OPENCLAW_GATEWAY_TOKEN"))
     gateway_password: str | None = Field(default_factory=lambda: _env_first("OPENTASK_GATEWAY_PASSWORD", "OPENCLAW_GATEWAY_PASSWORD"))

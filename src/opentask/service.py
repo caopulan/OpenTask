@@ -11,6 +11,7 @@ from .config import get_settings
 from .driver_protocol import driver_mutation_instructions, extract_driver_directives
 from .models import CreateRunRequest, NodeState, OpenClawRefs, RunEvent, RunState, WorkflowDefinition, utc_now
 from .openclaw_client import OpenClawClient, OpenClawGatewayError
+from .session_keys import qualify_agent_session_key
 from .store import RunStore
 from .workflow import (
     build_starter_workflow,
@@ -119,6 +120,7 @@ class OpenTaskService:
         workflow = self.store.load_workflow_lock(run_id)
         state = self.store.load_state(run_id)
         refs = self.store.load_openclaw_refs(run_id)
+        state, refs = self._normalize_session_keys(state, refs, workflow.definition)
 
         if state.status in {"paused", "completed", "cancelled"}:
             return state
@@ -295,6 +297,7 @@ class OpenTaskService:
         planner_prompt: str,
         driver_prompt: str,
     ) -> RunState:
+        state, refs = self._normalize_session_keys(state, refs, parsed.definition)
         planner_run = await self.gateway.send_chat(
             session_key=state.planner_session_key,
             message=planner_prompt,
@@ -811,12 +814,13 @@ class OpenTaskService:
             if node.kind == "summary":
                 changed = True
                 report_path = self._write_summary_report(state.run_id, state)
+                artifact_paths = node.artifact_paths if report_path in node.artifact_paths else [*node.artifact_paths, report_path]
                 updated_nodes.append(
                     node.model_copy(
                         update={
                             "status": "completed",
                             "completed_at": utc_now(),
-                            "artifact_paths": [*node.artifact_paths, report_path],
+                            "artifact_paths": artifact_paths,
                         }
                     )
                 )
@@ -836,11 +840,15 @@ class OpenTaskService:
                 or workflow_defaults.timeout_ms
                 or self.settings.default_tick_timeout_ms
             )
+            execution_prompt = self._build_node_execution_prompt(state, node, definition)
             if node.kind == "subagent":
-                parent_session_key = definition.session_key or state.driver_session_key
+                parent_session_key = self._effective_session_key(
+                    definition.session_key or state.driver_session_key,
+                    workflow_defaults.agent_id,
+                )
                 response = await self.gateway.spawn_session(
                     parent_session_key=parent_session_key,
-                    task=definition.prompt,
+                    task=execution_prompt,
                     label=node.title,
                     agent_id=workflow_defaults.agent_id,
                     model=workflow_defaults.model,
@@ -878,11 +886,20 @@ class OpenTaskService:
                 )
                 continue
 
-            session_key = definition.session_key or self._session_key_for_node(state.run_id, node.id, node.kind)
+            session_key = self._effective_session_key(
+                definition.session_key
+                or self._session_key_for_node(
+                    state.run_id,
+                    node.id,
+                    node.kind,
+                    workflow_defaults.agent_id,
+                ),
+                workflow_defaults.agent_id,
+            )
             run_id = f"{state.run_id}-{node.id}-{uuid4().hex[:8]}"
             response = await self.gateway.send_chat(
                 session_key=session_key,
-                message=definition.prompt,
+                message=execution_prompt,
                 idempotency_key=run_id,
                 timeout_ms=timeout_ms,
                 thinking=workflow_defaults.thinking,
@@ -953,6 +970,9 @@ class OpenTaskService:
     def _artifact_paths_after_report(self, run_id: str, node: NodeState, payload: dict) -> list[str]:
         if node.outputs_mode != "report":
             return node.artifact_paths
+        run_dir = self.store.runs_root / run_id
+        if any((run_dir / artifact).exists() for artifact in node.artifact_paths):
+            return node.artifact_paths
         report = "\n".join(
             [
                 f"# {node.title}",
@@ -986,22 +1006,29 @@ class OpenTaskService:
         return self.store.write_node_report(run_id, "summary", "report.md", "\n".join(lines))
 
     def _build_planner_prompt(self, run_id: str, body: str) -> str:
+        run_dir = self._run_dir_rel(run_id)
         return (
             f"You are the planner session for OpenTask run {run_id}.\n"
-            "Read workflow.lock.md and keep the human-readable objective in mind.\n"
-            "Do not overwrite the workflow file; use it as the frozen plan for execution.\n\n"
+            f"Workspace root: {self.project_root}\n"
+            f"Run directory: {run_dir}\n"
+            f"Review the frozen workflow at {run_dir}/workflow.lock.md and keep the human-readable objective in mind.\n"
+            "Do not overwrite workflow.lock.md; use it as the frozen execution plan.\n\n"
             f"{body}".strip()
         )
 
     def _build_driver_prompt(self, run_id: str) -> str:
+        run_dir = self._run_dir_rel(run_id)
         return (
             f"You are the idempotent driver for OpenTask run {run_id}.\n"
-            "On each tick, read workflow.lock.md, state.json, and nodes/* artifacts.\n"
-            "Never repeat completed nodes. Advance only ready nodes, inspect running nodes, and record all mutations in events.jsonl.\n"
+            f"Workspace root: {self.project_root}\n"
+            f"Run directory: {run_dir}\n"
+            f"On each tick, read {run_dir}/workflow.lock.md, {run_dir}/state.json, and {run_dir}/nodes/* artifacts.\n"
+            f"Never repeat completed nodes. Advance only ready nodes, inspect running nodes, and record all mutations in {run_dir}/events.jsonl.\n"
             f"{driver_mutation_instructions()}"
         )
 
     def _build_driver_turn_prompt(self, state: RunState, workflow) -> str:
+        run_dir = self._run_dir_rel(state.run_id)
         node_lines = []
         for node in state.nodes:
             needs = ", ".join(node.needs) if node.needs else "none"
@@ -1042,6 +1069,7 @@ class OpenTaskService:
             "",
             f"Workflow ID: {state.workflow_id}",
             f"Title: {state.title}",
+            f"Run directory: {run_dir}",
             "",
             "Workflow body:",
             body,
@@ -1054,6 +1082,59 @@ class OpenTaskService:
         ]
         if artifact_sections:
             sections.extend(["", "Artifact previews:", "\n\n".join(artifact_sections)])
+        return "\n".join(sections).strip() + "\n"
+
+    def _build_node_execution_prompt(self, state: RunState, node: NodeState, definition) -> str:
+        run_dir = self._run_dir_rel(state.run_id)
+        sections = [
+            f"You are executing OpenTask node {node.id} for run {state.run_id}.",
+            f"Workspace root: {self.project_root}",
+            f"Run directory: {run_dir}",
+            f"Workflow snapshot: {run_dir}/workflow.lock.md",
+            f"Run state projection: {run_dir}/state.json",
+            "Do not modify workflow.lock.md, state.json, or events.jsonl directly.",
+        ]
+
+        dependency_artifacts: list[str] = []
+        state_by_id = {item.id: item for item in state.nodes}
+        for dependency in node.needs:
+            dependency_node = state_by_id.get(dependency)
+            if dependency_node is None:
+                continue
+            dependency_artifacts.extend(
+                f"{run_dir}/{artifact}" for artifact in dependency_node.artifact_paths
+            )
+
+        if dependency_artifacts:
+            sections.extend(
+                [
+                    "",
+                    "Review these dependency artifacts before replying:",
+                    "\n".join(f"- {artifact}" for artifact in dependency_artifacts),
+                ]
+            )
+
+        if node.outputs_mode == "report":
+            sections.extend(
+                [
+                    "",
+                    "Produce a report for this node.",
+                    "Preferred artifact paths:",
+                    "\n".join(f"- {run_dir}/{artifact}" for artifact in node.artifact_paths)
+                    if node.artifact_paths
+                    else "- none",
+                    "If you cannot write files directly, include the full report in your final assistant message.",
+                ]
+            )
+        else:
+            sections.extend(
+                [
+                    "",
+                    "Reply with a concise completion update for this node.",
+                ]
+            )
+
+        sections.extend(["", "Task:", definition.prompt.strip() or "(no task prompt)"])
         return "\n".join(sections).strip() + "\n"
 
     def _handled_driver_directive_ids(self, run_id: str) -> set[str]:
@@ -1089,9 +1170,57 @@ class OpenTaskService:
             self._run_locks[run_id] = lock
         return lock
 
-    def _session_key_for_node(self, run_id: str, node_id: str, kind: str) -> str:
+    def _session_key_for_node(self, run_id: str, node_id: str, kind: str, agent_id: str) -> str:
         suffix = "subagent" if kind == "subagent" else "node"
-        return f"session:workflow:{run_id}:{suffix}:{node_id}"
+        return qualify_agent_session_key(
+            f"session:workflow:{run_id}:{suffix}:{node_id}",
+            agent_id,
+        )
+
+    def _normalize_session_keys(
+        self,
+        state: RunState,
+        refs: OpenClawRefs,
+        workflow_definition: WorkflowDefinition,
+    ) -> tuple[RunState, OpenClawRefs]:
+        agent_id = workflow_definition.defaults.agent_id
+        normalized_nodes: list[NodeState] = []
+        nodes_changed = False
+        for node in state.nodes:
+            if not node.session_key:
+                normalized_nodes.append(node)
+                continue
+            normalized_session_key = self._effective_session_key(node.session_key, agent_id)
+            if normalized_session_key == node.session_key:
+                normalized_nodes.append(node)
+                continue
+            nodes_changed = True
+            normalized_nodes.append(node.model_copy(update={"session_key": normalized_session_key}))
+
+        normalized_state = state.model_copy(
+            update={
+                "planner_session_key": self._effective_session_key(state.planner_session_key, agent_id),
+                "driver_session_key": self._effective_session_key(state.driver_session_key, agent_id),
+                "nodes": normalized_nodes if nodes_changed else state.nodes,
+            }
+        )
+        normalized_refs = refs.model_copy(
+            update={
+                "planner_session_key": self._effective_session_key(refs.planner_session_key, agent_id),
+                "driver_session_key": self._effective_session_key(refs.driver_session_key, agent_id),
+                "node_sessions": {
+                    node_id: self._effective_session_key(session_key, agent_id)
+                    for node_id, session_key in refs.node_sessions.items()
+                },
+            }
+        )
+        return normalized_state, normalized_refs
+
+    def _effective_session_key(self, session_key: str, agent_id: str) -> str:
+        return qualify_agent_session_key(session_key, agent_id)
+
+    def _run_dir_rel(self, run_id: str) -> str:
+        return Path(".opentask", "runs", run_id).as_posix()
 
     async def _publish(self, state: RunState) -> None:
         payload = state.model_dump(by_alias=True, exclude_none=True)

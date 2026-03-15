@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from datetime import datetime, timezone
 from typing import Annotated, Any, Literal
 
@@ -14,6 +15,10 @@ MutationKind = Literal["add_node", "rewire_node"]
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _default_workflow_agent_id() -> str:
+    return os.getenv("OPENTASK_AGENT_ID", "opentask").strip() or "opentask"
 
 
 class OpenTaskModel(BaseModel):
@@ -63,7 +68,7 @@ class WorkflowNode(OpenTaskModel):
 
 
 class WorkflowDefaults(OpenTaskModel):
-    agent_id: str = Field(default="main", alias="agentId")
+    agent_id: str = Field(default_factory=_default_workflow_agent_id, alias="agentId")
     model: str | None = None
     thinking: str | None = None
     timeout_ms: int = Field(default=30_000, alias="timeoutMs")

@@ -21,6 +21,8 @@ The backend listens on `http://127.0.0.1:8000`. The Vite dev server proxies `/ap
 
 For local OpenClaw usage, OpenTask will automatically reuse `~/.openclaw/identity/device.json` and `~/.openclaw/identity/device-auth.json` unless you override them with `OPENTASK_GATEWAY_DEVICE_IDENTITY_PATH` and `OPENTASK_GATEWAY_DEVICE_AUTH_PATH`.
 
+By default OpenTask targets the OpenClaw agent `opentask`. Point that agent's workspace at this repository, or override it with `OPENTASK_AGENT_ID`.
+
 ## Runtime Layout
 
 Each run lives under `.opentask/runs/<runId>/`:
@@ -46,6 +48,7 @@ Each node supports:
 - `needs`
 - `prompt`
 - `outputs.mode`: `notify` or `report`
+- `defaults.agentId`: the OpenClaw agent/workspace that owns the run sessions
 
 Driver settings support:
 
