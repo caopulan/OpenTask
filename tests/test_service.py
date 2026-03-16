@@ -127,6 +127,9 @@ async def test_create_run_bootstraps_cron_and_summary(tmp_path: Path) -> None:
     assert f"runs/{state.run_id}" in execute_prompt
     assert "refs.json" in execute_prompt
     assert "Preferred artifact paths:" in execute_prompt
+    assert "Node-local working memory files:" in execute_prompt
+    assert f"runs/{state.run_id}/nodes/execute-task/plan.md" in execute_prompt
+    assert f"runs/{state.run_id}/nodes/execute-task/progress.md" in execute_prompt
 
 
 @pytest.mark.asyncio
@@ -266,11 +269,15 @@ nodes:
     assert delegate.child_session_key == "agent:main:subagent:1"
     assert "Implement the delegated task" in gateway.spawned_sessions[0]["task"]
     assert f"runs/{state.run_id}" in gateway.spawned_sessions[0]["task"]
+    assert f"runs/{state.run_id}/nodes/delegate/handoff.md" in gateway.spawned_sessions[0]["task"]
     assert gateway.spawned_sessions[0]["cwd"] == str(service.project_root)
     assert not any(
         msg["session_key"].endswith(":node:delegate") and msg["message"] == "Implement the delegated task"
         for msg in gateway.sent_messages
     )
+    handoff_path = tmp_path / ".opentask" / "runs" / state.run_id / "nodes" / "delegate" / "handoff.md"
+    assert handoff_path.exists()
+    assert "Node-local working memory files:" in handoff_path.read_text(encoding="utf-8")
 
     state = await service.tick_run(state.run_id)
     delegate = next(node for node in state.nodes if node.id == "delegate")
@@ -278,6 +285,8 @@ nodes:
     assert delegate.status == "completed"
     assert finish.status == "completed"
     assert state.status == "completed"
+    result_path = tmp_path / ".opentask" / "runs" / state.run_id / "nodes" / "delegate" / "result.json"
+    assert '"workingMemory"' in result_path.read_text(encoding="utf-8")
 
 
 @pytest.mark.asyncio
@@ -461,6 +470,10 @@ async def test_driver_directive_normalizes_minimal_add_node_payload(tmp_path: Pa
     assert review_definition.outputs.mode == "report"
     assert review_definition.outputs.required_files == ["nodes/review-draft/report.md"]
     assert "Review the dependency artifacts" in review_definition.prompt
+    assert review.working_memory is not None
+    assert review.working_memory.plan == "nodes/review-draft/plan.md"
+    review_plan = tmp_path / ".opentask" / "runs" / state.run_id / "nodes" / "review-draft" / "plan.md"
+    assert review_plan.exists()
 
 
 @pytest.mark.asyncio

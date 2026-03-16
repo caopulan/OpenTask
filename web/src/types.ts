@@ -21,6 +21,13 @@ export type DeliveryContext = {
   threadId?: string | null;
 };
 
+export type NodeWorkingMemory = {
+  plan?: string | null;
+  findings?: string | null;
+  progress?: string | null;
+  handoff?: string | null;
+};
+
 export type RunNode = {
   id: string;
   title: string;
@@ -32,6 +39,7 @@ export type RunNode = {
   childSessionKey?: string | null;
   runId?: string | null;
   artifactPaths: string[];
+  workingMemory?: NodeWorkingMemory | null;
   notes: string[];
   startedAt?: string | null;
   completedAt?: string | null;

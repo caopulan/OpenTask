@@ -19,6 +19,10 @@ OpenTask 使用一个 registry 目录作为唯一真源。OpenClaw 的 skill、`
       control.jsonl
       nodes/
         <nodeId>/
+          plan.md
+          findings.md
+          progress.md
+          handoff.md
           report.md
           result.json
 ```
@@ -74,6 +78,13 @@ frontmatter 必填字段：
 - `cronJobId`
 - `updatedAt`
 - `nodes[]`
+
+每个节点还可以带一个 `workingMemory` 对象，记录这些规范路径：
+
+- `plan`
+- `findings`
+- `progress`
+- subagent 节点的 `handoff`
 
 ## Run Refs
 
@@ -133,6 +144,10 @@ frontmatter 必填字段：
 
 每个节点可以写：
 
+- `plan.md`，用于节点本地执行计划
+- `findings.md`，用于节点本地发现或来源记录
+- `progress.md`，用于节点本地执行进度
+- `handoff.md`，用于父 session 写给 subagent 的 brief
 - `report.md`，用于人读报告
 - `result.json`，用于结构化状态和 session 绑定
 
@@ -145,4 +160,5 @@ frontmatter 必填字段：
 - `artifacts`
 - `sessionKey`
 - `childSessionKey`
+- `workingMemory`
 - `payload`

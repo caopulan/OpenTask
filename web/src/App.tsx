@@ -453,6 +453,18 @@ function App() {
                       )}
                     </ul>
                   </div>
+                  <div className="detail-card">
+                    <span className="detail-label">Node memory</span>
+                    <ul className="artifact-list">
+                      {selectedNode.workingMemory ? (
+                        Object.entries(selectedNode.workingMemory)
+                          .filter(([, value]) => Boolean(value))
+                          .map(([label, value]) => <li key={label}>{`${label}: ${value}`}</li>)
+                      ) : (
+                        <li>not configured</li>
+                      )}
+                    </ul>
+                  </div>
                   <div className="detail-actions">
                     <button
                       className="ghost-btn"

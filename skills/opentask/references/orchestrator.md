@@ -26,6 +26,7 @@ A subagent session is a child execution context created by `sessions_spawn`.
 It must:
 
 - work only on the assigned node scope
+- keep node-local planning/progress/findings in the canonical node files when the node spans multiple steps
 - write node-local artifacts
 - avoid mutating global workflow files
 - return a concise structured outcome to the parent
@@ -54,7 +55,7 @@ Follow this order.
 6. Start execution.
 
 Do not perform the full research task during planning. Planning should stop once you have enough information to define the workflow, dependencies, and execution branches. The deeper research belongs in `gather-context`, execution nodes, or delegated subagents after the run exists.
-Do not load unrelated planning skills or create sidecar planning-memory files such as `task_plan.md`, `findings.md`, or `progress.md` unless the assignment explicitly asks for them. The OpenTask workflow files and run registry are the canonical working memory.
+Do not load unrelated planning skills or create extra root-level planning-memory files such as `task_plan.md`, `findings.md`, or `progress.md` unless the assignment explicitly asks for them. The OpenTask workflow files, run registry, and canonical node-local memory files are the canonical working memory.
 
 ## 4. When To Use Crawl
 
@@ -183,6 +184,7 @@ The child task must include:
 - the run path
 - the node id
 - required output files
+- canonical node-local working-memory files (`plan.md`, `findings.md`, `progress.md`, and `handoff.md` when present)
 - a rule that the child must not modify global run files
 - a rule that the child should suppress direct user-facing announce unless explicitly needed
 
@@ -202,11 +204,12 @@ When a child finishes:
 
 1. Read the child session history if needed.
 2. Verify `report.md` and `result.json`.
-3. If files are missing, reconstruct them from the child transcript.
-4. Mark the node `completed` or `failed`.
-5. Append the matching event.
-6. Recompute which downstream nodes become `ready`.
-7. Decide whether to add, retry, skip, or rewire nodes.
+3. Review node-local working-memory files if the node scope was multi-step.
+4. If files are missing, reconstruct them from the child transcript.
+5. Mark the node `completed` or `failed`.
+6. Append the matching event.
+7. Recompute which downstream nodes become `ready`.
+8. Decide whether to add, retry, skip, or rewire nodes.
 
 Only the Orchestrator Session may mutate the global workflow or run state after a child finishes.
 

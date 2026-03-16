@@ -118,6 +118,13 @@ class ParsedWorkflow(OpenTaskModel):
     source_path: str | None = Field(default=None, alias="sourcePath")
 
 
+class NodeWorkingMemory(OpenTaskModel):
+    plan: str | None = None
+    findings: str | None = None
+    progress: str | None = None
+    handoff: str | None = None
+
+
 class NodeState(OpenTaskModel):
     model_config = ConfigDict(
         populate_by_name=True,
@@ -135,6 +142,7 @@ class NodeState(OpenTaskModel):
     child_session_key: str | None = Field(default=None, alias="childSessionKey")
     run_id: str | None = Field(default=None, alias="runId")
     artifact_paths: list[str] = Field(default_factory=list, alias="artifactPaths")
+    working_memory: NodeWorkingMemory | None = Field(default=None, alias="workingMemory")
     notes: list[str] = Field(default_factory=list)
     started_at: str | None = Field(default=None, alias="startedAt")
     completed_at: str | None = Field(default=None, alias="completedAt")
@@ -281,6 +289,7 @@ class NodeResult(OpenTaskModel):
     artifacts: list[str] = Field(default_factory=list)
     session_key: str | None = Field(default=None, alias="sessionKey")
     child_session_key: str | None = Field(default=None, alias="childSessionKey")
+    working_memory: NodeWorkingMemory | None = Field(default=None, alias="workingMemory")
     payload: dict[str, Any] = Field(default_factory=dict)
 
 

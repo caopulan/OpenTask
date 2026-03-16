@@ -19,6 +19,10 @@ This file defines the files the Orchestrator Session must create and maintain.
       control.jsonl
       nodes/
         <nodeId>/
+          plan.md
+          findings.md
+          progress.md
+          handoff.md
           report.md
           result.json
 ```
@@ -143,10 +147,12 @@ Each node in `nodes` should track:
 - `sessionKey`
 - `childSessionKey`
 - `artifactPaths`
+- `workingMemory`
 - `startedAt`
 - `completedAt`
 
 `artifactPaths` should list the canonical artifact paths expected for that node, even before the files exist. Do not leave `artifactPaths` empty only because a node is still `pending` or `ready`.
+`workingMemory` should point to canonical node-local execution files when the node kind supports them. For `session_turn`, `subagent`, and `summary` nodes, use `plan.md`, `findings.md`, and `progress.md`. For `subagent`, also expose `handoff.md`.
 
 ## 5. refs.json
 
@@ -229,7 +235,14 @@ Supported actions:
 
 ## 8. Node Files
 
-Each node directory may contain helper files, but these two are canonical:
+Each node directory may contain helper files. These are first-class canonical files for node-local execution memory:
+
+- `plan.md`
+- `findings.md`
+- `progress.md`
+- `handoff.md` for subagent nodes
+
+These remain the canonical outcome files:
 
 - `report.md`
 - `result.json`
@@ -245,6 +258,12 @@ Each node directory may contain helper files, but these two are canonical:
   "artifacts": ["nodes/implement-fix/report.md"],
   "sessionKey": "agent:main:discord:channel:123",
   "childSessionKey": "agent:main:subagent:abc",
+  "workingMemory": {
+    "plan": "nodes/implement-fix/plan.md",
+    "findings": "nodes/implement-fix/findings.md",
+    "progress": "nodes/implement-fix/progress.md",
+    "handoff": "nodes/implement-fix/handoff.md"
+  },
   "payload": {}
 }
 ```
@@ -258,6 +277,10 @@ Allowed direct writes by the Orchestrator Session:
 - `runs/<runId>/state.json`
 - `runs/<runId>/refs.json`
 - `runs/<runId>/events.jsonl`
+- `runs/<runId>/nodes/<nodeId>/plan.md`
+- `runs/<runId>/nodes/<nodeId>/findings.md`
+- `runs/<runId>/nodes/<nodeId>/progress.md`
+- `runs/<runId>/nodes/<nodeId>/handoff.md`
 - `runs/<runId>/nodes/<nodeId>/report.md`
 - `runs/<runId>/nodes/<nodeId>/result.json`
 

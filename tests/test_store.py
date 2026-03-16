@@ -19,11 +19,16 @@ def test_run_store_creates_expected_files(tmp_path: Path) -> None:
     assert (run_dir / "refs.json").exists()
     assert (run_dir / "control.jsonl").exists()
     assert (run_dir / "nodes" / "execute-task").exists()
+    assert (run_dir / "nodes" / "execute-task" / "plan.md").exists()
+    assert (run_dir / "nodes" / "execute-task" / "findings.md").exists()
+    assert (run_dir / "nodes" / "execute-task" / "progress.md").exists()
     assert refs.driver_session_key.startswith("agent:opentask:session:workflow:")
     assert refs.driver_session_key.endswith(":root")
     assert state.planner_session_key.startswith("agent:opentask:session:workflow:")
     assert state.root_session_key == refs.root_session_key
     assert state.nodes[0].status == "ready"
+    assert state.nodes[0].working_memory is not None
+    assert state.nodes[0].working_memory.plan == "nodes/execute-task/plan.md"
 
 
 def test_append_and_load_events(tmp_path: Path) -> None:

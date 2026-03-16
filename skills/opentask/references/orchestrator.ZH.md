@@ -26,6 +26,7 @@ Subagent Session 是通过 `sessions_spawn` 创建的子执行上下文。
 它必须：
 
 - 只处理被分配的节点范围
+- 当节点本身是多步骤任务时，把节点级 plan / progress / findings 写进规范节点文件
 - 只写节点本地产物
 - 不修改全局工作流文件
 - 把简洁、结构化的结果交还给父 session
@@ -54,7 +55,7 @@ Subagent Session 是通过 `sessions_spawn` 创建的子执行上下文。
 6. 开始执行。
 
 不要在 planning 阶段把完整调研任务先做完。Planning 只应收集足够定义工作流、依赖和执行分支的信息；更深入的调研应该放到 `gather-context`、执行节点或 delegated subagent 里，并且发生在 run 已经创建之后。
-除非 assignment 明确要求，否则不要再加载其他 planning skill，也不要创建 `task_plan.md`、`findings.md`、`progress.md` 这类旁路 planning memory 文件。OpenTask 的 workflow 文件和 run registry 才是规范的工作记忆。
+除非 assignment 明确要求，否则不要再加载其他 planning skill，也不要在 repo 根或旁路位置创建 `task_plan.md`、`findings.md`、`progress.md` 这类 planning memory 文件。OpenTask 的 workflow 文件、run registry 和规范的节点级 working-memory 文件才是规范工作记忆。
 
 ## 4. 什么时候要用 Crawl
 
@@ -183,6 +184,7 @@ child task 必须包含：
 - run 路径
 - node id
 - 必须写出的输出文件
+- 规范的节点级 working-memory 文件（`plan.md`、`findings.md`、`progress.md`，以及存在时的 `handoff.md`）
 - child 不得修改全局 run 文件
 - 除非明确需要，否则 child 不应直接向用户播报
 
@@ -202,11 +204,12 @@ child 完成后：
 
 1. 必要时读取 child session history
 2. 验证 `report.md` 和 `result.json`
-3. 如果缺失，就根据 child transcript 回填
-4. 把节点标为 `completed` 或 `failed`
-5. 追加对应事件
-6. 重新计算哪些下游节点会变成 `ready`
-7. 决定是否需要增节点、重试、跳过或 rewiring
+3. 如果节点本身是多步骤任务，也检查节点级 working-memory 文件
+4. 如果缺失，就根据 child transcript 回填
+5. 把节点标为 `completed` 或 `failed`
+6. 追加对应事件
+7. 重新计算哪些下游节点会变成 `ready`
+8. 决定是否需要增节点、重试、跳过或 rewiring
 
 child 完成之后，只有 Orchestrator Session 可以修改全局工作流或 run 状态。
 

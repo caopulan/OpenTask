@@ -9,6 +9,7 @@ from .models import (
     DeliveryContext,
     NodeResult,
     NodeState,
+    NodeWorkingMemory,
     ParsedWorkflow,
     RunControlAction,
     RunEvent,
@@ -68,18 +69,19 @@ class RunStore:
             status = "ready" if not node.needs else "pending"
             node_dir = run_dir / "nodes" / node.id
             node_dir.mkdir(parents=True, exist_ok=True)
-            nodes.append(
-                NodeState(
-                    id=node.id,
-                    title=node.title,
-                    kind=node.kind,
-                    status=status,
-                    needs=node.needs,
-                    outputsMode=node.outputs.mode,
-                    artifactPaths=artifact_paths,
-                    waitFor=node.wait_for,
-                )
+            node_state = NodeState(
+                id=node.id,
+                title=node.title,
+                kind=node.kind,
+                status=status,
+                needs=node.needs,
+                outputsMode=node.outputs.mode,
+                artifactPaths=artifact_paths,
+                workingMemory=self.node_working_memory_paths(node.id, node.kind),
+                waitFor=node.wait_for,
             )
+            self.ensure_node_runtime_files(run_id, node_state)
+            nodes.append(node_state)
 
         resolved_root_session_key = root_session_key or source_session_key or render_agent_session_key(
             "session:workflow:{run_id}:root",
@@ -198,6 +200,9 @@ class RunStore:
         return actions
 
     def write_node_report(self, run_id: str, node_id: str, filename: str, content: str) -> str:
+        return self.write_node_file(run_id, node_id, filename, content)
+
+    def write_node_file(self, run_id: str, node_id: str, filename: str, content: str) -> str:
         path = self._run_dir(run_id) / "nodes" / node_id / filename
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
@@ -213,6 +218,39 @@ class RunStore:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
         return str(path.relative_to(self._run_dir(run_id)))
+
+    def node_working_memory_paths(self, node_id: str, kind: str) -> NodeWorkingMemory | None:
+        if kind not in {"session_turn", "subagent", "summary"}:
+            return None
+        return NodeWorkingMemory(
+            plan=f"nodes/{node_id}/plan.md",
+            findings=f"nodes/{node_id}/findings.md",
+            progress=f"nodes/{node_id}/progress.md",
+            handoff=f"nodes/{node_id}/handoff.md" if kind == "subagent" else None,
+        )
+
+    def ensure_node_runtime_files(self, run_id: str, node: NodeState) -> None:
+        node_dir = self._run_dir(run_id) / "nodes" / node.id
+        node_dir.mkdir(parents=True, exist_ok=True)
+        if node.working_memory is None:
+            return
+        self._write_file_if_missing(
+            self._run_dir(run_id) / node.working_memory.plan,
+            self._default_node_plan(node),
+        )
+        self._write_file_if_missing(
+            self._run_dir(run_id) / node.working_memory.findings,
+            self._default_node_findings(node),
+        )
+        self._write_file_if_missing(
+            self._run_dir(run_id) / node.working_memory.progress,
+            self._default_node_progress(node),
+        )
+        if node.working_memory.handoff:
+            self._write_file_if_missing(
+                self._run_dir(run_id) / node.working_memory.handoff,
+                self._default_node_handoff(node),
+            )
 
     def update_state_timestamp(self, state: RunState, *, last_event: str) -> RunState:
         return state.model_copy(
@@ -233,6 +271,45 @@ class RunStore:
         tmp_path = path.with_suffix(path.suffix + ".tmp")
         tmp_path.write_text(json.dumps(payload, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
         tmp_path.replace(path)
+
+    @staticmethod
+    def _write_file_if_missing(path: Path, content: str) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if path.exists():
+            return
+        path.write_text(content, encoding="utf-8")
+
+    @staticmethod
+    def _default_node_plan(node: NodeState) -> str:
+        return (
+            f"# {node.title} plan\n\n"
+            f"- Node ID: `{node.id}`\n"
+            f"- Kind: `{node.kind}`\n"
+            f"- Status: `{node.status}`\n\n"
+            "Use this file only if this node expands into multiple concrete steps.\n"
+            "Keep the plan scoped to this node; do not duplicate the global workflow here.\n"
+        )
+
+    @staticmethod
+    def _default_node_findings(node: NodeState) -> str:
+        return (
+            f"# {node.title} findings\n\n"
+            "Record node-local discoveries, source links, and intermediate conclusions here.\n"
+        )
+
+    @staticmethod
+    def _default_node_progress(node: NodeState) -> str:
+        return (
+            f"# {node.title} progress\n\n"
+            "Append concise node-local execution updates here when the node spans multiple steps.\n"
+        )
+
+    @staticmethod
+    def _default_node_handoff(node: NodeState) -> str:
+        return (
+            f"# {node.title} handoff\n\n"
+            "The parent orchestrator can place the concrete child brief for this node here before dispatch.\n"
+        )
 
     @staticmethod
     def _read_json(path: Path, model_type):

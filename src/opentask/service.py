@@ -996,7 +996,7 @@ class OpenTaskService:
                     self._node_state_from_definition(mutation.node),
                     *state_nodes[insert_at:],
                 ]
-                self._ensure_node_runtime_dir(state.run_id, mutation.node.id)
+                self._ensure_node_runtime_dir(state.run_id, state_nodes[insert_at])
                 self.store.append_event(
                     state.run_id,
                     RunEvent(
@@ -1191,6 +1191,8 @@ class OpenTaskService:
                     definition.session_key or state.driver_session_key,
                     workflow_defaults.agent_id,
                 )
+                if node.working_memory and node.working_memory.handoff:
+                    self.store.write_support_file(state.run_id, node.working_memory.handoff, execution_prompt)
                 response = await self.gateway.spawn_session(
                     parent_session_key=parent_session_key,
                     task=execution_prompt,
@@ -1389,6 +1391,7 @@ class OpenTaskService:
                 artifacts=node.artifact_paths,
                 sessionKey=node.session_key,
                 childSessionKey=node.child_session_key,
+                workingMemory=node.working_memory,
                 payload=payload,
             ),
         )
@@ -1523,6 +1526,23 @@ class OpenTaskService:
                 ]
             )
 
+        if node.working_memory is not None:
+            memory_lines = [
+                f"- plan: {run_dir}/{node.working_memory.plan}",
+                f"- findings: {run_dir}/{node.working_memory.findings}",
+                f"- progress: {run_dir}/{node.working_memory.progress}",
+            ]
+            if node.working_memory.handoff:
+                memory_lines.append(f"- handoff: {run_dir}/{node.working_memory.handoff}")
+            sections.extend(
+                [
+                    "",
+                    "Node-local working memory files:",
+                    "\n".join(memory_lines),
+                    "If this node expands into multiple concrete steps, keep these files updated instead of creating ad-hoc planning files elsewhere.",
+                ]
+            )
+
         sections.extend(["", "Task:", definition.prompt.strip() or "(no task prompt)"])
         return "\n".join(sections).strip() + "\n"
 
@@ -1536,8 +1556,8 @@ class OpenTaskService:
                 handled.add(directive_id)
         return handled
 
-    def _ensure_node_runtime_dir(self, run_id: str, node_id: str) -> None:
-        (self.store.runs_root / run_id / "nodes" / node_id).mkdir(parents=True, exist_ok=True)
+    def _ensure_node_runtime_dir(self, run_id: str, node: NodeState) -> None:
+        self.store.ensure_node_runtime_files(run_id, node)
 
     def _node_state_from_definition(self, node) -> NodeState:
         artifact_paths = ensure_relative_paths(normalize_artifact_paths(node))
@@ -1549,6 +1569,7 @@ class OpenTaskService:
             needs=node.needs,
             outputsMode=node.outputs.mode,
             artifactPaths=artifact_paths,
+            workingMemory=self.store.node_working_memory_paths(node.id, node.kind),
             waitFor=node.wait_for,
         )
 

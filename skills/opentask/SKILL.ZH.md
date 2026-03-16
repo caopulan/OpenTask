@@ -32,4 +32,5 @@
 - 必要时直接写 workflow 和 run 文件，不要依赖特殊的 OpenTask runtime 命令才能继续推进。
 - 按 references 中定义的协议有意识地更新 `state.json`、`refs.json`、`events.jsonl`。
 - 节点输出统一写成 `report.md` 和 `result.json`。
-- 除非当前 assignment 明确要求，否则不要创建 `task_plan.md`、`findings.md`、`progress.md` 这类额外 planning memory 文件。workflow 和 run registry 本身就是工作记忆。
+- 对于复杂执行节点，把节点级工作记忆写到 `runs/<runId>/nodes/<nodeId>/plan.md`、`findings.md`、`progress.md`；subagent 的父子 handoff 写到 `handoff.md`。
+- 除非当前 assignment 明确要求，否则不要在 repo 根或旁路位置创建 `task_plan.md`、`findings.md`、`progress.md` 这类额外 planning memory 文件。应使用 workflow/run registry 和规范的节点级 working-memory 文件。

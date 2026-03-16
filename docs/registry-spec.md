@@ -19,6 +19,10 @@ OpenTask uses a registry directory as the single source of truth. OpenClaw skill
       control.jsonl
       nodes/
         <nodeId>/
+          plan.md
+          findings.md
+          progress.md
+          handoff.md
           report.md
           result.json
 ```
@@ -74,6 +78,13 @@ Minimum fields:
 - `cronJobId`
 - `updatedAt`
 - `nodes[]`
+
+Each node may also expose `workingMemory` with canonical paths for:
+
+- `plan`
+- `findings`
+- `progress`
+- `handoff` for subagent nodes
 
 ## Run Refs
 
@@ -133,6 +144,10 @@ Each control record includes:
 
 Each node may write:
 
+- `plan.md` for node-local execution planning
+- `findings.md` for node-local discoveries or source notes
+- `progress.md` for node-local execution progress
+- `handoff.md` for parent-to-child subagent briefs
 - `report.md` for human-readable output
 - `result.json` for structured status and session binding
 
@@ -145,4 +160,5 @@ Each node may write:
 - `artifacts`
 - `sessionKey`
 - `childSessionKey`
+- `workingMemory`
 - `payload`
