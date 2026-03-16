@@ -103,6 +103,28 @@ export OPENTASK_AGENT_ID=opentask
 
 OpenTask automatically reuses local OpenClaw device auth from `~/.openclaw/identity/`.
 
+### Fastest OpenClaw Setup
+
+The shortest supported setup is workspace mode:
+
+1. Clone this repository and install dependencies.
+2. Point the OpenClaw agent workspace at this repository.
+3. Set `OPENTASK_REGISTRY_ROOT` to this repository root.
+4. In the target OpenClaw conversation, use the local skill at `skills/opentask/SKILL.md`.
+
+This is the recommended path because the agent can read the skill, workflows, and registry in one workspace.
+
+### Skill Availability Modes
+
+OpenTask supports two ways to make the skill visible to OpenClaw:
+
+1. Workspace mode, recommended:
+   Run the agent in a workspace that points at this repository.
+2. Shared-skill mode, optional:
+   Copy or symlink [skills/opentask](skills/opentask) into the shared skills directory configured by your OpenClaw deployment.
+
+If the agent cannot read [skills/opentask/SKILL.md](skills/opentask/SKILL.md), it is not installed correctly for OpenClaw yet.
+
 ## Preferred Workflow
 
 The primary path is OpenClaw-native:

@@ -15,6 +15,17 @@ Treat OpenClaw as the execution plane and OpenTask as the registry plus control 
 - Read [references/registry.md](./references/registry.md) before creating or updating workflow/run files.
 - Read [references/operations.md](./references/operations.md) when you need native OpenClaw tool usage patterns.
 
+## Installation Assumption
+
+Use this skill in one of these supported layouts:
+
+1. Workspace mode, recommended:
+   the current OpenClaw agent workspace points at this repository.
+2. Shared-skill mode:
+   this `skills/opentask/` folder has been copied or symlinked into the shared skills directory configured by the current OpenClaw deployment.
+
+If you cannot read this file or the linked references from the current session, stop and tell the operator that the skill is not installed for this agent yet.
+
 ## Core Model
 
 - The current user-facing session becomes the Orchestrator Session.

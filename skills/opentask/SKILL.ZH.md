@@ -10,6 +10,17 @@
 - 创建或更新 workflow/run 文件前必须读 [references/registry.ZH.md](./references/registry.ZH.md)。
 - 需要知道原生 OpenClaw 工具如何使用时，再读 [references/operations.ZH.md](./references/operations.ZH.md)。
 
+## 安装前提
+
+使用这个 skill 时，允许两种挂载方式：
+
+1. Workspace mode，推荐：
+   当前 OpenClaw agent 的 workspace 直接指向这个仓库。
+2. Shared-skill mode：
+   当前部署已经把这个 `skills/opentask/` 目录复制或软链接到了 shared skills 目录。
+
+如果当前 session 连这个文件或上面的 references 都读不到，就应该立刻停止，并明确告诉操作者：这个 agent 还没有安装好 OpenTask skill。
+
 ## 核心模型
 
 - 当前面向用户的 session 就是 Orchestrator Session。

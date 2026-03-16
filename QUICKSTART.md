@@ -13,14 +13,25 @@ By the end you will have:
 - a root-session-bound workflow that can continue through OpenClaw cron
 - an optional control plane at `http://127.0.0.1:8000` and `http://127.0.0.1:5174/`
 
-## 1. Install Dependencies
+## 1. Make the Skill Visible to OpenClaw
+
+Use one of these modes:
+
+1. Workspace mode, recommended:
+   point the OpenClaw agent workspace at this repository.
+2. Shared-skill mode:
+   copy or symlink [skills/opentask](skills/opentask) into the shared skills directory configured by your OpenClaw deployment.
+
+Before continuing, confirm the agent can read [skills/opentask/SKILL.md](skills/opentask/SKILL.md).
+
+## 2. Install Dependencies
 
 ```bash
 uv sync --dev
 pnpm --dir web install
 ```
 
-## 2. Set the Registry Root
+## 3. Set the Registry Root
 
 Use the repository itself as the registry root:
 
@@ -29,13 +40,13 @@ export OPENTASK_REGISTRY_ROOT=$PWD
 export OPENTASK_GATEWAY_URL=ws://127.0.0.1:18789
 ```
 
-## 3. Validate the Sample Workflow
+## 4. Validate the Sample Workflow
 
 ```bash
 uv run opentask workflow validate workflows/research-demo.task.md
 ```
 
-## 4. Resolve the Current OpenClaw Session
+## 5. Resolve the Current OpenClaw Session
 
 In the OpenClaw conversation where you want the long-running task to live:
 
@@ -49,7 +60,7 @@ Manual example values:
 - `agentId`: `main`
 - `deliveryContext`: `{"channel":"discord","to":"channel:1234567890"}`
 
-## 5. Create a Run Bound to That Session
+## 6. Create a Run Bound to That Session
 
 ```bash
 uv run opentask run create \
@@ -61,7 +72,7 @@ uv run opentask run create \
 
 The command prints the run JSON, including the new `runId`.
 
-## 6. Inspect the Registry
+## 7. Inspect the Registry
 
 Open the run folder:
 
@@ -80,7 +91,7 @@ You should see:
 
 The contract for each file is documented in [docs/registry-spec.md](docs/registry-spec.md).
 
-## 7. Issue Explicit Controls
+## 8. Issue Explicit Controls
 
 Pause or resume:
 
@@ -101,7 +112,7 @@ Patch cron:
 uv run opentask control patch_cron <runId> --patch-json '{"enabled": true}'
 ```
 
-## 8. Start the Optional Backend
+## 9. Start the Optional Backend
 
 ```bash
 uv run opentask-api
@@ -116,7 +127,7 @@ Useful endpoints:
 - `GET /api/runs/<runId>/events`
 - `POST /api/runs/<runId>/actions/send_message`
 
-## 9. Start the Optional Web UI
+## 10. Start the Optional Web UI
 
 ```bash
 pnpm --dir web dev
@@ -133,7 +144,7 @@ The UI is for:
 
 It is not the preferred production surface for starting new tasks.
 
-## 10. Debug Path: Create a Run Through the API
+## 11. Debug Path: Create a Run Through the API
 
 For local debugging or testing, you can still create a run through the backend:
 

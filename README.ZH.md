@@ -103,6 +103,28 @@ export OPENTASK_AGENT_ID=opentask
 
 OpenTask 会自动复用 `~/.openclaw/identity/` 下的本机 OpenClaw device auth。
 
+### 最快的 OpenClaw 接入方式
+
+最短可用路径是 workspace mode：
+
+1. 克隆这个仓库并安装依赖。
+2. 让 OpenClaw agent 的 workspace 指向这个仓库。
+3. 把 `OPENTASK_REGISTRY_ROOT` 设为仓库根目录。
+4. 在目标 OpenClaw 对话里使用本地 skill `skills/opentask/SKILL.ZH.md`。
+
+这是推荐路径，因为 agent 可以在同一个 workspace 里读取 skill、workflow 和 registry。
+
+### Skill 挂载方式
+
+OpenTask 支持两种让 OpenClaw 看见 skill 的方式：
+
+1. Workspace mode，推荐：
+   直接让 agent 在这个仓库 workspace 中运行。
+2. Shared-skill mode，可选：
+   把 [skills/opentask](skills/opentask) 复制或软链接到你当前 OpenClaw 部署配置的 shared skills 目录。
+
+如果 agent 读不到 [skills/opentask/SKILL.ZH.md](skills/opentask/SKILL.ZH.md)，那就说明它还没有被正确安装到 OpenClaw 里。
+
 ## 推荐使用方式
 
 主路径是 OpenClaw 原生工作流：

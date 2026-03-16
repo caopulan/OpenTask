@@ -13,14 +13,25 @@
 - 一个绑定到 root session、可由 OpenClaw cron 持续推进的工作流
 - 一个可选的控制面，地址为 `http://127.0.0.1:8000` 和 `http://127.0.0.1:5174/`
 
-## 1. 安装依赖
+## 1. 先让 OpenClaw 能看到这个 Skill
+
+使用以下任一方式：
+
+1. Workspace mode，推荐：
+   让 OpenClaw agent 的 workspace 指向这个仓库。
+2. Shared-skill mode：
+   把 [skills/opentask](skills/opentask) 复制或软链接到你当前 OpenClaw 部署配置的 shared skills 目录。
+
+继续之前，先确认 agent 能读到 [skills/opentask/SKILL.ZH.md](skills/opentask/SKILL.ZH.md)。
+
+## 2. 安装依赖
 
 ```bash
 uv sync --dev
 pnpm --dir web install
 ```
 
-## 2. 设置 Registry Root
+## 3. 设置 Registry Root
 
 直接把仓库目录作为 registry root：
 
@@ -29,13 +40,13 @@ export OPENTASK_REGISTRY_ROOT=$PWD
 export OPENTASK_GATEWAY_URL=ws://127.0.0.1:18789
 ```
 
-## 3. 校验示例工作流
+## 4. 校验示例工作流
 
 ```bash
 uv run opentask workflow validate workflows/research-demo.task.md
 ```
 
-## 4. 解析当前 OpenClaw Session
+## 5. 解析当前 OpenClaw Session
 
 在你希望任务长期运行的 OpenClaw 对话里：
 
@@ -49,7 +60,7 @@ uv run opentask workflow validate workflows/research-demo.task.md
 - `agentId`: `main`
 - `deliveryContext`: `{"channel":"discord","to":"channel:1234567890"}`
 
-## 5. 绑定当前 Session 创建 Run
+## 6. 绑定当前 Session 创建 Run
 
 ```bash
 uv run opentask run create \
@@ -61,7 +72,7 @@ uv run opentask run create \
 
 命令会输出包含 `runId` 的 JSON。
 
-## 6. 查看 Registry
+## 7. 查看 Registry
 
 打开这个 run 目录：
 
@@ -80,7 +91,7 @@ ls runs/<runId>
 
 每个文件的约定见 [docs/registry-spec.ZH.md](docs/registry-spec.ZH.md)。
 
-## 7. 发送显式控制动作
+## 8. 发送显式控制动作
 
 暂停或恢复：
 
@@ -101,7 +112,7 @@ uv run opentask control send_message <runId> --message "Still running."
 uv run opentask control patch_cron <runId> --patch-json '{"enabled": true}'
 ```
 
-## 8. 启动可选的后端
+## 9. 启动可选的后端
 
 ```bash
 uv run opentask-api
@@ -116,7 +127,7 @@ uv run opentask-api
 - `GET /api/runs/<runId>/events`
 - `POST /api/runs/<runId>/actions/send_message`
 
-## 9. 启动可选的 Web UI
+## 10. 启动可选的 Web UI
 
 ```bash
 pnpm --dir web dev
@@ -133,7 +144,7 @@ pnpm --dir web dev
 
 它不是推荐的生产任务启动入口。
 
-## 10. Debug 路径：通过 API 创建 Run
+## 11. Debug 路径：通过 API 创建 Run
 
 为了本地调试和测试，你仍然可以通过后端创建一个 run：
 
