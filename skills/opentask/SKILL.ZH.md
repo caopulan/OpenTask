@@ -26,8 +26,10 @@
 ## 保持这些规则
 
 - 把当前面向用户的 session 当作 root orchestrator session。
+- 把本 skill 及其 references 当作本次 run 的完整操作手册。除非用户明确要求，否则不要再加载其他 planning 或 workflow-management skill。
 - 用户可见进度必须通过显式更新发送，不要暴露原始 orchestration prompt。
 - 让 OpenClaw 执行节点和 cron，让 OpenTask 记录 registry 状态和 control。
 - 必要时直接写 workflow 和 run 文件，不要依赖特殊的 OpenTask runtime 命令才能继续推进。
 - 按 references 中定义的协议有意识地更新 `state.json`、`refs.json`、`events.jsonl`。
 - 节点输出统一写成 `report.md` 和 `result.json`。
+- 除非当前 assignment 明确要求，否则不要创建 `task_plan.md`、`findings.md`、`progress.md` 这类额外 planning memory 文件。workflow 和 run registry 本身就是工作记忆。

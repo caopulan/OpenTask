@@ -47,11 +47,14 @@ Do not start a workflow for a single short answer.
 Follow this order.
 
 1. Parse the user goal and constraints.
-2. Inspect available context.
+2. Inspect only enough context to decide the workflow shape.
 3. Decide whether the task needs crawl, direct execution, or subagents.
 4. Write the workflow file.
 5. Create the run folder and initial state.
 6. Start execution.
+
+Do not perform the full research task during planning. Planning should stop once you have enough information to define the workflow, dependencies, and execution branches. The deeper research belongs in `gather-context`, execution nodes, or delegated subagents after the run exists.
+Do not load unrelated planning skills or create sidecar planning-memory files such as `task_plan.md`, `findings.md`, or `progress.md` unless the assignment explicitly asks for them. The OpenTask workflow files and run registry are the canonical working memory.
 
 ## 4. When To Use Crawl
 
@@ -65,6 +68,8 @@ Use crawl or broad repository discovery before finalizing the workflow when:
 Do not use crawl when the task is already tightly scoped and the needed files are known.
 
 Represent crawl as a `session_turn` node whose prompt is focused on discovery and artifact creation, for example `gather-context`.
+
+For open-ended research tasks, do just enough pre-run discovery to decide the branch structure. Do not exhaust the topic before the workflow exists; the substantive research should happen inside `gather-context` and downstream execution nodes.
 
 ## 5. When To Use Subagents
 
@@ -134,6 +139,8 @@ When the workflow is ready:
    - `deliveryContext`
 5. Mark entry nodes as `ready`.
 6. Append `run.created`.
+
+Create the run before you start long-form research or delegated execution. If you are already spending significant time gathering sources, your workflow should normally already exist and that work should be happening inside the appropriate node.
 
 ## 8. Execution Loop
 

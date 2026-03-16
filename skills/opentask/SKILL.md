@@ -31,8 +31,10 @@ If you cannot read this file or the linked references from the current session, 
 ## Keep These Rules
 
 - Treat the current user-facing session as the root orchestrator session.
+- Treat this skill and its linked references as the complete operating manual for the run. Do not load unrelated planning or workflow-management skills unless the user explicitly asks for them.
 - Send user-visible progress through explicit updates; do not expose raw orchestration prompts.
 - Let OpenClaw execute nodes and cron turns; let OpenTask record registry state and controls.
 - Write workflow and run files directly when needed; do not depend on a special OpenTask runtime command to make progress.
 - Update `state.json`, `refs.json`, and `events.jsonl` intentionally as part of the orchestration protocol described in the references.
 - Leave node outputs as `report.md` and `result.json`.
+- Do not create extra planning-memory files such as `task_plan.md`, `findings.md`, or `progress.md` unless the current assignment explicitly requires them. The workflow files and run registry are the working memory.

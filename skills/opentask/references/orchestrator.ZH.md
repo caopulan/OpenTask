@@ -47,11 +47,14 @@ Subagent Session 是通过 `sessions_spawn` 创建的子执行上下文。
 按以下顺序执行：
 
 1. 解析用户目标和约束。
-2. 查看现有上下文。
+2. 只查看足以决定工作流形状的上下文。
 3. 决定任务需要 crawl、直接执行，还是 subagent。
 4. 写工作流文件。
 5. 创建 run 目录和初始状态。
 6. 开始执行。
+
+不要在 planning 阶段把完整调研任务先做完。Planning 只应收集足够定义工作流、依赖和执行分支的信息；更深入的调研应该放到 `gather-context`、执行节点或 delegated subagent 里，并且发生在 run 已经创建之后。
+除非 assignment 明确要求，否则不要再加载其他 planning skill，也不要创建 `task_plan.md`、`findings.md`、`progress.md` 这类旁路 planning memory 文件。OpenTask 的 workflow 文件和 run registry 才是规范的工作记忆。
 
 ## 4. 什么时候要用 Crawl
 
@@ -65,6 +68,8 @@ Subagent Session 是通过 `sessions_spawn` 创建的子执行上下文。
 如果任务范围已经很明确、目标文件也已知，就不要用 crawl。
 
 把 crawl 表达为一个 `session_turn` 节点，其 prompt 专门用于发现和产出上下文，例如 `gather-context`。
+
+对于开放式调研任务，只做足够决定分支结构的前置发现。不要在 workflow 创建前就把 topic 调研做完；真正的调研应由 `gather-context` 和后续执行节点承担。
 
 ## 5. 什么时候要用 Subagent
 
@@ -134,6 +139,8 @@ Subagent Session 是通过 `sessions_spawn` 创建的子执行上下文。
    - `deliveryContext`
 5. 把入口节点标成 `ready`
 6. 追加 `run.created`
+
+在开始长时间调研或 delegated execution 之前就应该先创建 run。如果你已经花了较多时间搜集资料，通常说明 workflow 早就该存在，而这些工作应该发生在对应节点内部。
 
 ## 8. 执行循环
 
