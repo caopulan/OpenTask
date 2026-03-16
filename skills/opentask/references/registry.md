@@ -165,6 +165,8 @@ Minimum fields:
 
 Append one JSON object per line. Never rewrite history.
 
+Append events in chronological order. Do not backdate a new event so that its timestamp is earlier than a line already written.
+
 Minimum fields:
 
 - `event`
@@ -185,6 +187,12 @@ Common events:
 - `node.added`
 - `node.rewired`
 - `run.completed`
+
+For a normal node lifecycle, keep both event order and timestamps consistent with state transitions:
+
+- `node.ready` before `node.started`
+- `node.started` before `node.completed` or `node.failed`
+- when a node is added by mutation, write the mutation event before any readiness or start event for that node
 
 ## 7. control.jsonl
 

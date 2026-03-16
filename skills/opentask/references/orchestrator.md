@@ -132,7 +132,7 @@ On each orchestration pass:
 2. Check running nodes first.
 3. Promote newly satisfied nodes to `ready`.
 4. Dispatch ready nodes.
-5. Update state and events.
+5. Update state and events. Keep event timestamps monotonic, and never write `node.started` before the matching `node.ready`.
 6. Decide whether the user should be informed.
 7. Ensure cron will wake the Orchestrator Session again if the run is not terminal.
 
@@ -245,6 +245,13 @@ Then:
 3. append `run.completed`
 4. disable or remove cron
 5. send the final user-visible update
+
+Before you declare completion, run a final self-check:
+
+- every required artifact for the run exists
+- `control.jsonl` is either zero-byte or valid JSONL
+- `events.jsonl` is valid JSONL, chronologically ordered, and consistent with node lifecycle transitions
+- the final `workflow.lock.md`, `state.json`, and node artifacts agree on dependencies and terminal statuses
 
 ## 15. Status Transition Rules
 

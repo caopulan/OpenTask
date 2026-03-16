@@ -165,6 +165,8 @@ Orchestrator Session 必须保持 `state.json` 最新。
 
 每行追加一个 JSON 对象，绝不要重写历史。
 
+事件必须按时间顺序追加。不要为新事件写一个比前面已落盘行更早的时间戳。
+
 最小字段：
 
 - `event`
@@ -185,6 +187,12 @@ Orchestrator Session 必须保持 `state.json` 最新。
 - `node.added`
 - `node.rewired`
 - `run.completed`
+
+对于正常的节点生命周期，事件顺序和时间戳都必须与状态迁移一致：
+
+- `node.ready` 必须早于 `node.started`
+- `node.started` 必须早于 `node.completed` 或 `node.failed`
+- 如果一个节点是通过 mutation 新增的，先写 mutation 事件，再写这个节点的 ready/start 事件
 
 ## 7. control.jsonl
 

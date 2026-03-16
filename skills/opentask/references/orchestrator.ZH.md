@@ -132,7 +132,7 @@ Subagent Session 是通过 `sessions_spawn` 创建的子执行上下文。
 2. 先检查 running 节点
 3. 把依赖满足的节点提升为 `ready`
 4. 派发 ready 节点
-5. 更新状态和事件
+5. 更新状态和事件。事件时间戳必须单调递增，绝不能先写某个节点的 `node.started` 再写它的 `node.ready`
 6. 判断是否应该通知用户
 7. 如果 run 还没结束，确保 cron 还会再次唤醒 Orchestrator Session
 
@@ -245,6 +245,13 @@ child 完成之后，只有 Orchestrator Session 可以修改全局工作流或 
 3. 追加 `run.completed`
 4. 禁用或删除 cron
 5. 发送最终用户可见更新
+
+在宣布完成之前，先做一次最终自检：
+
+- run 需要的产物是否全部存在
+- `control.jsonl` 是否为零字节空文件或合法 JSONL
+- `events.jsonl` 是否为合法 JSONL、时间顺序正确，并且与节点生命周期迁移一致
+- 最终 `workflow.lock.md`、`state.json` 与各节点产物中的依赖和终态是否一致
 
 ## 15. 状态迁移规则
 
