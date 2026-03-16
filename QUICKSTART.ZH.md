@@ -77,6 +77,13 @@ ls runs/<runId>
 - `control.jsonl`
 - `nodes/`
 
+对于支持节点级 working memory 的节点目录，你还应该能看到这些规范文件：
+
+- `plan.md`
+- `findings.md`
+- `progress.md`
+- `handoff.md`，用于 subagent 节点
+
 每个文件的约定见 [docs/registry-spec.ZH.md](docs/registry-spec.ZH.md)。
 
 ## 7. 直接在 OpenClaw 中控制工作流

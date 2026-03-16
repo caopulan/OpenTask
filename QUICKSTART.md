@@ -77,6 +77,13 @@ You should see:
 - `control.jsonl`
 - `nodes/`
 
+Inside each eligible node directory you should also expect canonical node-local working-memory files such as:
+
+- `plan.md`
+- `findings.md`
+- `progress.md`
+- `handoff.md` for subagent nodes
+
 The contract for each file is documented in [docs/registry-spec.md](docs/registry-spec.md).
 
 ## 7. Control the Workflow from OpenClaw

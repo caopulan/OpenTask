@@ -22,7 +22,7 @@ OpenTask 围绕一个简单分工构建：
 
 ## 提供的能力
 
-- 一套 workflow、run、refs、event、control、node output 的 registry 契约
+- 一套 workflow、run、refs、event、control、节点级 working memory 和 node output 的 registry 契约
 - 一个 Python core library 和 `opentask` CLI，用于确定性的状态变更
 - 一个共享 OpenClaw skill：[skills/opentask/SKILL.ZH.md](skills/opentask/SKILL.ZH.md)
 - 一个用于索引 registry 和暴露控制 API 的 FastAPI 后端
@@ -65,6 +65,10 @@ OpenTask 退化为 read-mostly control plane。
       control.jsonl
       nodes/
         <nodeId>/
+          plan.md
+          findings.md
+          progress.md
+          handoff.md
           report.md
           result.json
 ```
@@ -75,6 +79,8 @@ OpenTask 退化为 read-mostly control plane。
 - `refs.json`：OpenClaw 运行时绑定，例如 source session、root session、cron、child sessions
 - `events.jsonl`：追加式审计日志
 - `control.jsonl`：显式的人工或 UI 控制请求
+- `nodes/<nodeId>/plan.md`、`findings.md`、`progress.md`：规范的节点级 working memory
+- `nodes/<nodeId>/handoff.md`：subagent 节点的规范父子 brief
 
 ## 安装
 
@@ -122,7 +128,7 @@ OpenTask 会自动复用 `~/.openclaw/identity/` 下的本机 OpenClaw device au
 2. OpenClaw agent 使用 [skills/opentask/SKILL.ZH.md](skills/opentask/SKILL.ZH.md)。
 3. Agent 解析当前 `sessionKey` 和 `deliveryContext`。
 4. Agent 在 `workflows/` 下创建或校验工作流文件。
-5. Agent 调用 `opentask` CLI，创建并绑定到当前 session 的 run。
+5. Agent 通过 registry 协议为当前 session 创建或绑定 run；在需要确定性 helper command 时，也可以借助 `opentask` CLI 或 core library。
 6. 后续由 OpenClaw 的 cron 和 subagent 持续推进。
 
 手工等价命令：

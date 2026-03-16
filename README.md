@@ -22,7 +22,7 @@ The workflow must keep running even when the OpenTask backend or frontend is dow
 
 ## What It Ships
 
-- A registry contract for workflows, runs, refs, events, controls, and node outputs
+- A registry contract for workflows, runs, refs, events, controls, node-local working memory, and node outputs
 - A Python core library and `opentask` CLI for deterministic state changes
 - A shared OpenClaw skill at [skills/opentask/SKILL.md](skills/opentask/SKILL.md)
 - A FastAPI backend that indexes the registry and exposes control APIs
@@ -65,6 +65,10 @@ See the formal spec in [docs/registry-spec.md](docs/registry-spec.md).
       control.jsonl
       nodes/
         <nodeId>/
+          plan.md
+          findings.md
+          progress.md
+          handoff.md
           report.md
           result.json
 ```
@@ -75,6 +79,8 @@ Key files:
 - `refs.json`: OpenClaw runtime bindings such as source session, root session, cron, child sessions
 - `events.jsonl`: append-only audit trail
 - `control.jsonl`: explicit operator or UI control requests
+- `nodes/<nodeId>/plan.md`, `findings.md`, `progress.md`: canonical node-local working memory
+- `nodes/<nodeId>/handoff.md`: canonical parent-to-child brief for subagent nodes
 
 ## Installation
 
@@ -122,7 +128,7 @@ The primary path is OpenClaw-native:
 2. The OpenClaw agent uses [skills/opentask/SKILL.md](skills/opentask/SKILL.md).
 3. The agent resolves the current `sessionKey` and `deliveryContext`.
 4. The agent creates or validates a workflow file under `workflows/`.
-5. The agent calls the `opentask` CLI to create a run bound to that session.
+5. The agent creates or binds a run for that session using the registry protocol, optionally through the `opentask` CLI or core library when deterministic helper commands are useful.
 6. OpenClaw cron and subagents continue execution from there.
 
 Manual equivalent:

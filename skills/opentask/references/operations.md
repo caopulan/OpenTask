@@ -12,6 +12,8 @@ Use normal file tools to:
 - create `runs/<runId>/...`
 - update `workflow.lock.md`, `state.json`, `refs.json`
 - append lines to `events.jsonl`
+- write `nodes/<nodeId>/plan.md`, `findings.md`, `progress.md`
+- write `nodes/<nodeId>/handoff.md` for subagent nodes
 - write `nodes/<nodeId>/report.md` and `result.json`
 
 When `control.jsonl` must exist before any actions are appended, create it as an empty file. Do not write placeholder comments or prose into that file.
@@ -34,6 +36,7 @@ The child prompt should include:
 - node id
 - scoped task
 - dependency artifacts to read
+- canonical node-local working-memory paths to update
 - required outputs to write
 - a rule to avoid global state mutation
 - a rule to suppress direct user-facing announce unless explicitly requested
@@ -44,6 +47,7 @@ Use `sessions_history` or equivalent session history reads when:
 
 - the child result needs verification
 - a child failed to write artifacts
+- you need to reconstruct node-local working-memory files
 - you need to reconstruct `report.md` or `result.json`
 
 ## 5. Cron

@@ -12,6 +12,8 @@
 - 创建 `runs/<runId>/...`
 - 更新 `workflow.lock.md`、`state.json`、`refs.json`
 - 向 `events.jsonl` 追加一行
+- 写 `nodes/<nodeId>/plan.md`、`findings.md`、`progress.md`
+- 对于 subagent 节点，写 `nodes/<nodeId>/handoff.md`
 - 写 `nodes/<nodeId>/report.md` 和 `result.json`
 
 如果 `control.jsonl` 需要先存在但还没有任何动作，就把它创建成空文件。不要往这个文件里写占位注释或普通说明文字。
@@ -34,6 +36,7 @@ child prompt 应包含：
 - node id
 - 有边界的任务范围
 - 需要读取的依赖产物
+- 需要更新的规范节点级 working-memory 路径
 - 必须写出的输出文件
 - 不得修改全局状态
 - 除非明确要求，否则不要直接向用户播报
@@ -44,6 +47,7 @@ child prompt 应包含：
 
 - 需要核实 child 结果
 - child 没有写出产物
+- 需要回填节点级 working-memory 文件
 - 需要回填 `report.md` 或 `result.json`
 
 ## 5. Cron
