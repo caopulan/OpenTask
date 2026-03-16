@@ -22,6 +22,9 @@ English | [中文](AGENTS.ZH.md)
 - Verify that the generated files, formats, and execution steps match the skill instructions. Treat missing files, wrong formats, or protocol violations as a skill bug, not just an execution mistake.
 - Iterate on the skill until an isolated sub-agent can complete the task exactly as intended using only the skill documentation.
 - Keep all temporary test directories and artifacts untracked unless the user explicitly asks to preserve them.
+- For local OpenClaw validation on this machine, the `main` agent inherits workspace `/Users/chunqiu/clawd`.
+- Workspace-installed skills for `main` live under `/Users/chunqiu/clawd/skills`.
+- If a skill is installed via symlink, the symlink target must also resolve under `/Users/chunqiu/clawd/skills`; OpenClaw rejects workspace skills whose resolved path escapes that root.
 
 ## Python Environment
 - Use `uv` for Python version, virtual environment, dependency, and command management.

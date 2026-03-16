@@ -22,6 +22,9 @@
 - 验证生成的文件、格式和执行步骤是否符合 skill 说明。缺少文件、格式错误或违反协议，都应视为 skill 缺陷，而不只是执行误差。
 - 持续迭代 skill，直到一个隔离上下文的 sub-agent 仅凭这份 skill 文档就能按预期完整完成任务。
 - 所有临时测试目录和产物都保持未跟踪状态，除非用户明确要求保留并提交。
+- 在这台机器上做本地 OpenClaw 验证时，`main` agent 继承的 workspace 是 `/Users/chunqiu/clawd`。
+- `main` 的 workspace skill 安装根目录是 `/Users/chunqiu/clawd/skills`。
+- 如果用软链接安装 skill，软链接最终解析后的目标也必须落在 `/Users/chunqiu/clawd/skills` 下面；OpenClaw 会拒绝加载解析后逃逸出这个根目录的 workspace skill。
 
 ## Python 环境
 - 使用 `uv` 管理 Python 版本、虚拟环境、依赖和命令。
