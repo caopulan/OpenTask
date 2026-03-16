@@ -81,6 +81,17 @@ Do not create a subagent for trivial work or for steps that only update workflow
 
 Build a workflow that is explicit and minimal.
 
+Treat the versioned workflow under `workflows/*.task.md` as reusable definition, not a run-local execution transcript.
+
+In the source workflow:
+
+- keep prompts scoped to the task and expected deliverable
+- do not hard-code a concrete `runId`
+- do not hard-code `runs/<runId>/...` paths
+- do not hard-code session ids or child session ids
+
+Add concrete run paths, node ids, dependency artifact locations, and write targets later in a run-local dispatch brief, node-local handoff file, or the frozen `workflow.lock.md` created for that run.
+
 Always include:
 
 - one or more execution nodes
@@ -142,12 +153,14 @@ On each orchestration pass:
 
 Use when the parent session or a persistent named session should do the work directly.
 
-The node prompt must tell the executor:
+The dispatched execution brief must tell the executor:
 
 - the run path
 - the node id
 - dependency artifacts to read
 - which files to write
+
+The reusable source workflow prompt may stay generic. Put concrete `runs/<runId>/...` paths into the dispatch brief or another run-local handoff, not into the versioned workflow definition.
 
 ### subagent Node
 
@@ -165,6 +178,8 @@ The child task must include:
 - required output files
 - a rule that the child must not modify global run files
 - a rule that the child should suppress direct user-facing announce unless explicitly needed
+
+Keep the reusable workflow prompt generic if possible. Put concrete run-local paths, output targets, and the announce-suppression rule into the child handoff or another run-local brief before spawning the child.
 
 Record in `refs.json`:
 

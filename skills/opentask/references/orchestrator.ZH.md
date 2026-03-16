@@ -81,6 +81,17 @@ Subagent Session 是通过 `sessions_spawn` 创建的子执行上下文。
 
 工作流要明确且最小化。
 
+把 `workflows/*.task.md` 下的版本化 workflow 当作可复用定义，而不是某次 run 的执行转录。
+
+在源 workflow 里：
+
+- prompt 只写任务范围和期望交付物
+- 不要写死具体 `runId`
+- 不要写死 `runs/<runId>/...` 路径
+- 不要写死 session id 或 child session id
+
+具体的 run 路径、node id、依赖产物位置和输出目标，应在 run 创建之后，通过 run-local dispatch brief、节点本地 handoff 文件，或该次 run 的 `workflow.lock.md` 来补充。
+
 必须包含：
 
 - 一个或多个执行节点
@@ -142,12 +153,14 @@ Subagent Session 是通过 `sessions_spawn` 创建的子执行上下文。
 
 适用于父 session 或其他持久 named session 直接完成的工作。
 
-节点 prompt 必须告诉执行者：
+派发时的 execution brief 必须告诉执行者：
 
 - run 路径
 - node id
 - 需要读取的依赖产物
 - 需要写出的文件
+
+可复用的源 workflow prompt 可以保持通用。具体的 `runs/<runId>/...` 路径应该写到 dispatch brief 或其他 run-local handoff 里，而不是写进版本化 workflow 定义本身。
 
 ### subagent 节点
 
@@ -165,6 +178,8 @@ child task 必须包含：
 - 必须写出的输出文件
 - child 不得修改全局 run 文件
 - 除非明确需要，否则 child 不应直接向用户播报
+
+如果可能，源 workflow prompt 应保持通用。具体的 run-local 路径、输出目标和“禁止直接向用户播报”的规则，应在创建 child 前写进 handoff 或其他 run-local brief。
 
 在 `refs.json` 中记录：
 

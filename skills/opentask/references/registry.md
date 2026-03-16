@@ -27,6 +27,15 @@ This file defines the files the Orchestrator Session must create and maintain.
 
 Write the workflow directly as Markdown plus YAML frontmatter.
 
+The versioned workflow under `workflows/*.task.md` should stay reusable across runs.
+
+For workflow node prompts:
+
+- describe task scope, dependencies, and expected deliverables
+- do not hard-code a specific `runId`
+- do not hard-code concrete `runs/<runId>/...` paths in the source workflow
+- add concrete run-local paths later in `workflow.lock.md` or another run-local brief used at dispatch time
+
 Required frontmatter fields:
 
 - `workflowId`
@@ -136,6 +145,8 @@ Each node in `nodes` should track:
 - `artifactPaths`
 - `startedAt`
 - `completedAt`
+
+`artifactPaths` should list the canonical artifact paths expected for that node, even before the files exist. Do not leave `artifactPaths` empty only because a node is still `pending` or `ready`.
 
 ## 5. refs.json
 

@@ -27,6 +27,15 @@
 
 直接用 Markdown + YAML frontmatter 写工作流。
 
+`workflows/*.task.md` 下的版本化 workflow 应保持可复用，不要只服务某一次 run。
+
+对于 workflow 节点 prompt：
+
+- 描述任务范围、依赖和期望交付物
+- 不要写死某个具体 `runId`
+- 不要在源 workflow 里写死 `runs/<runId>/...` 路径
+- 具体的 run-local 路径应在 `workflow.lock.md` 或派发时使用的 run-local brief 里补充
+
 frontmatter 必填字段：
 
 - `workflowId`
@@ -136,6 +145,8 @@ Orchestrator Session 必须保持 `state.json` 最新。
 - `artifactPaths`
 - `startedAt`
 - `completedAt`
+
+`artifactPaths` 应该记录该节点的规范产物路径，即使文件还没有生成也应如此。不要仅仅因为节点还处于 `pending` 或 `ready`，就把 `artifactPaths` 留空。
 
 ## 5. refs.json
 
