@@ -17,12 +17,7 @@ Treat OpenClaw as the execution plane and OpenTask as the registry plus control 
 
 ## Installation Assumption
 
-Use this skill in one of these supported layouts:
-
-1. Workspace mode, recommended:
-   the current OpenClaw agent workspace points at this repository.
-2. Shared-skill mode:
-   this `skills/opentask/` folder has been copied or symlinked into the shared skills directory configured by the current OpenClaw deployment.
+Assume this `opentask` skill has been installed into the shared skills directory used by the current OpenClaw deployment.
 
 If you cannot read this file or the linked references from the current session, stop and tell the operator that the skill is not installed for this agent yet.
 

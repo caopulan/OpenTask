@@ -12,12 +12,7 @@
 
 ## 安装前提
 
-使用这个 skill 时，允许两种挂载方式：
-
-1. Workspace mode，推荐：
-   当前 OpenClaw agent 的 workspace 直接指向这个仓库。
-2. Shared-skill mode：
-   当前部署已经把这个 `skills/opentask/` 目录复制或软链接到了 shared skills 目录。
+默认这个 `opentask` skill 已经安装到了当前 OpenClaw 部署使用的 shared skills 目录中。
 
 如果当前 session 连这个文件或上面的 references 都读不到，就应该立刻停止，并明确告诉操作者：这个 agent 还没有安装好 OpenTask skill。
 

@@ -13,16 +13,11 @@
 - 一个绑定到 root session、可由 OpenClaw cron 持续推进的工作流
 - 一个可选的控制面，地址为 `http://127.0.0.1:8000` 和 `http://127.0.0.1:5174/`
 
-## 1. 先让 OpenClaw 能看到这个 Skill
+## 1. 先把 Skill 安装到 OpenClaw
 
-使用以下任一方式：
+把 [skills/opentask](skills/opentask) 复制或软链接到当前 OpenClaw 部署配置的 shared skills 目录里，并以 `opentask` 作为安装名。
 
-1. Workspace mode，推荐：
-   让 OpenClaw agent 的 workspace 指向这个仓库。
-2. Shared-skill mode：
-   把 [skills/opentask](skills/opentask) 复制或软链接到你当前 OpenClaw 部署配置的 shared skills 目录。
-
-继续之前，先确认 agent 能读到 [skills/opentask/SKILL.ZH.md](skills/opentask/SKILL.ZH.md)。
+继续之前，先确认 agent 能通过这个已安装的 skill 读到 [skills/opentask/SKILL.ZH.md](skills/opentask/SKILL.ZH.md)。
 
 ## 2. 安装依赖
 
@@ -33,12 +28,14 @@ pnpm --dir web install
 
 ## 3. 设置 Registry Root
 
-直接把仓库目录作为 registry root：
+设置 OpenTask 要管理的 registry 根目录：
 
 ```bash
-export OPENTASK_REGISTRY_ROOT=$PWD
+export OPENTASK_REGISTRY_ROOT=/path/to/opentask-registry
 export OPENTASK_GATEWAY_URL=ws://127.0.0.1:18789
 ```
+
+第一次本地使用时，直接把当前仓库目录当作 registry root 也可以。
 
 ## 4. 校验示例工作流
 

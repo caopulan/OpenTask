@@ -84,7 +84,7 @@ Prerequisites:
 - `uv`
 - Node.js and `pnpm`
 - A running OpenClaw Gateway
-- An OpenClaw agent workspace pointing at this repository
+- An OpenClaw deployment with a shared skills directory
 
 Install dependencies:
 
@@ -103,25 +103,14 @@ export OPENTASK_AGENT_ID=opentask
 
 OpenTask automatically reuses local OpenClaw device auth from `~/.openclaw/identity/`.
 
-### Fastest OpenClaw Setup
+### Install into OpenClaw
 
-The shortest supported setup is workspace mode:
+Install the OpenTask skill into the shared skills directory used by your OpenClaw deployment:
 
 1. Clone this repository and install dependencies.
-2. Point the OpenClaw agent workspace at this repository.
-3. Set `OPENTASK_REGISTRY_ROOT` to this repository root.
-4. In the target OpenClaw conversation, use the local skill at `skills/opentask/SKILL.md`.
-
-This is the recommended path because the agent can read the skill, workflows, and registry in one workspace.
-
-### Skill Availability Modes
-
-OpenTask supports two ways to make the skill visible to OpenClaw:
-
-1. Workspace mode, recommended:
-   Run the agent in a workspace that points at this repository.
-2. Shared-skill mode, optional:
-   Copy or symlink [skills/opentask](skills/opentask) into the shared skills directory configured by your OpenClaw deployment.
+2. Copy or symlink [skills/opentask](skills/opentask) into the OpenClaw shared skills directory as `opentask`.
+3. Set `OPENTASK_REGISTRY_ROOT` to the registry root you want OpenTask to manage.
+4. In the target OpenClaw conversation, use the installed `opentask` skill.
 
 If the agent cannot read [skills/opentask/SKILL.md](skills/opentask/SKILL.md), it is not installed correctly for OpenClaw yet.
 

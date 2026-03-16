@@ -13,16 +13,11 @@ By the end you will have:
 - a root-session-bound workflow that can continue through OpenClaw cron
 - an optional control plane at `http://127.0.0.1:8000` and `http://127.0.0.1:5174/`
 
-## 1. Make the Skill Visible to OpenClaw
+## 1. Install the Skill into OpenClaw
 
-Use one of these modes:
+Copy or symlink [skills/opentask](skills/opentask) into the shared skills directory configured by your OpenClaw deployment, using the installed name `opentask`.
 
-1. Workspace mode, recommended:
-   point the OpenClaw agent workspace at this repository.
-2. Shared-skill mode:
-   copy or symlink [skills/opentask](skills/opentask) into the shared skills directory configured by your OpenClaw deployment.
-
-Before continuing, confirm the agent can read [skills/opentask/SKILL.md](skills/opentask/SKILL.md).
+Before continuing, confirm the agent can read [skills/opentask/SKILL.md](skills/opentask/SKILL.md) through that installed skill.
 
 ## 2. Install Dependencies
 
@@ -33,12 +28,14 @@ pnpm --dir web install
 
 ## 3. Set the Registry Root
 
-Use the repository itself as the registry root:
+Choose the registry root that OpenTask should manage:
 
 ```bash
-export OPENTASK_REGISTRY_ROOT=$PWD
+export OPENTASK_REGISTRY_ROOT=/path/to/opentask-registry
 export OPENTASK_GATEWAY_URL=ws://127.0.0.1:18789
 ```
+
+For a first local setup, using this repository root is acceptable.
 
 ## 4. Validate the Sample Workflow
 
