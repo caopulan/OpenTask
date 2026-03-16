@@ -43,33 +43,24 @@ For a first local setup, using this repository root is acceptable.
 uv run opentask workflow validate workflows/research-demo.task.md
 ```
 
-## 5. Resolve the Current OpenClaw Session
+## 5. Start the Workflow from OpenClaw
 
 In the OpenClaw conversation where you want the long-running task to live:
 
 1. Use the OpenTask skill at [skills/opentask/SKILL.md](skills/opentask/SKILL.md).
-2. Resolve the current `sessionKey`, `agentId`, and `deliveryContext`.
-3. Treat that session as the root orchestrator.
+2. Ask the agent to treat the current conversation as the root orchestrator session.
+3. Ask it to create or validate the workflow under `workflows/`.
+4. Ask it to bind a run to the current session and start execution.
 
-Manual example values:
+Example prompt:
 
-- `sessionKey`: `agent:main:discord:channel:1234567890`
-- `agentId`: `main`
-- `deliveryContext`: `{"channel":"discord","to":"channel:1234567890"}`
-
-## 6. Create a Run Bound to That Session
-
-```bash
-uv run opentask run create \
-  --workflow-path workflows/research-demo.task.md \
-  --source-session-key 'agent:main:discord:channel:1234567890' \
-  --source-agent-id main \
-  --delivery-context-json '{"channel":"discord","to":"channel:1234567890"}'
+```text
+Use the opentask skill for this conversation. Treat this session as the root orchestrator, create or validate the workflow, bind a run to this session, and keep it running until completion.
 ```
 
-The command prints the run JSON, including the new `runId`.
+Under the hood, the skill should resolve the current `sessionKey`, `agentId`, and `deliveryContext`, then create the run and start cron. The CLI exists for operators and tests, not as the primary user-facing path.
 
-## 7. Inspect the Registry
+## 6. Inspect the Registry
 
 Open the run folder:
 
@@ -88,24 +79,34 @@ You should see:
 
 The contract for each file is documented in [docs/registry-spec.md](docs/registry-spec.md).
 
-## 8. Issue Explicit Controls
+## 7. Control the Workflow from OpenClaw
 
-Pause or resume:
+Continue controlling the run from the same OpenClaw conversation. Typical examples:
+
+- Pause:
+  `Pause this workflow after the current active node finishes.`
+- Resume:
+  `Resume the workflow and continue from the current plan.`
+- Request an update:
+  `Send me a short milestone update in this conversation.`
+- Change cadence:
+  `Slow the cron cadence because this can run in the background.`
+
+The skill should translate those requests into native OpenClaw actions:
+
+- append or interpret control intent through `control.jsonl`
+- update workflow or run files when needed
+- patch cron through OpenClaw tools
+- send explicit user-visible messages only when appropriate
+
+## 8. Operator Equivalents
+
+These commands are for operators, debugging, UI integrations, and tests. They are not the primary control path for end users:
 
 ```bash
 uv run opentask control pause <runId>
 uv run opentask control resume <runId>
-```
-
-Send a user-visible progress update:
-
-```bash
 uv run opentask control send_message <runId> --message "Still running."
-```
-
-Patch cron:
-
-```bash
 uv run opentask control patch_cron <runId> --patch-json '{"enabled": true}'
 ```
 

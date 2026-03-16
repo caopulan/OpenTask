@@ -43,33 +43,24 @@ export OPENTASK_GATEWAY_URL=ws://127.0.0.1:18789
 uv run opentask workflow validate workflows/research-demo.task.md
 ```
 
-## 5. 解析当前 OpenClaw Session
+## 5. 在 OpenClaw 中启动工作流
 
 在你希望任务长期运行的 OpenClaw 对话里：
 
 1. 使用 [skills/opentask/SKILL.ZH.md](skills/opentask/SKILL.ZH.md)
-2. 解析当前 `sessionKey`、`agentId` 和 `deliveryContext`
-3. 把这个 session 作为 root orchestrator
+2. 要求 agent 把当前对话当作 root orchestrator session
+3. 要求它在 `workflows/` 下创建或校验工作流
+4. 要求它把 run 绑定到当前 session 并开始执行
 
-手工示例值：
+示例提示词：
 
-- `sessionKey`: `agent:main:discord:channel:1234567890`
-- `agentId`: `main`
-- `deliveryContext`: `{"channel":"discord","to":"channel:1234567890"}`
-
-## 6. 绑定当前 Session 创建 Run
-
-```bash
-uv run opentask run create \
-  --workflow-path workflows/research-demo.task.md \
-  --source-session-key 'agent:main:discord:channel:1234567890' \
-  --source-agent-id main \
-  --delivery-context-json '{"channel":"discord","to":"channel:1234567890"}'
+```text
+对这个对话使用 opentask skill。把当前 session 作为 root orchestrator，创建或校验 workflow，把 run 绑定到当前 session，并持续执行直到完成。
 ```
 
-命令会输出包含 `runId` 的 JSON。
+在实现层，这个 skill 会自己解析当前 `sessionKey`、`agentId` 和 `deliveryContext`，然后创建 run 并启动 cron。CLI 主要给 operator、测试和 UI 集成使用，不是面向最终用户的主入口。
 
-## 7. 查看 Registry
+## 6. 查看 Registry
 
 打开这个 run 目录：
 
@@ -88,24 +79,34 @@ ls runs/<runId>
 
 每个文件的约定见 [docs/registry-spec.ZH.md](docs/registry-spec.ZH.md)。
 
-## 8. 发送显式控制动作
+## 7. 直接在 OpenClaw 中控制工作流
 
-暂停或恢复：
+继续在同一个 OpenClaw 对话里控制这个 run。常见例子：
+
+- 暂停：
+  `等当前活跃节点结束后，把这个 workflow 暂停。`
+- 恢复：
+  `恢复这个 workflow，按当前计划继续执行。`
+- 请求进度更新：
+  `在这个对话里给我发一个简短的阶段性进度更新。`
+- 修改执行节奏：
+  `把 cron 调慢一些，这个任务可以后台跑。`
+
+这个 skill 应该把这些请求翻译成原生 OpenClaw 动作：
+
+- 通过 `control.jsonl` 追加或解释控制意图
+- 在需要时更新 workflow 或 run 文件
+- 通过 OpenClaw 工具修改 cron
+- 只在合适的时候发送显式的用户可见消息
+
+## 8. Operator 等价命令
+
+下面这些命令是给 operator、调试、UI 集成和测试使用的，不是最终用户的主控制路径：
 
 ```bash
 uv run opentask control pause <runId>
 uv run opentask control resume <runId>
-```
-
-发送用户可见的进度更新：
-
-```bash
 uv run opentask control send_message <runId> --message "Still running."
-```
-
-修改 cron：
-
-```bash
 uv run opentask control patch_cron <runId> --patch-json '{"enabled": true}'
 ```
 
