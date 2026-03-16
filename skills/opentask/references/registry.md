@@ -111,9 +111,31 @@ nodes:
 ---
 ```
 
+## 3a. workflow.lock.md Contract
+
+`workflow.lock.md` is the frozen run-local snapshot of the workflow definition.
+
+It must keep the same Markdown plus YAML frontmatter shape as the source `workflows/*.task.md`.
+
+Allowed changes when freezing a run:
+
+- add run-local paths or dispatch-specific details inside node prompts
+- fill concrete node-local artifact targets
+- add run-local notes below the frontmatter body
+
+Do not replace the frontmatter workflow with an ad hoc summary format such as:
+
+- custom `## run_id` sections
+- bullet-only dependency summaries
+- prose-only node lists without canonical frontmatter fields
+
+If the source workflow already has valid frontmatter, copy that structure into `workflow.lock.md` and only specialize it for the current run.
+
 ## 4. state.json
 
 The Orchestrator Session must keep `state.json` current.
+
+`sourceSessionKey`, `sourceAgentId`, `deliveryContext`, and `rootSessionKey` must come from actual session discovery for the current run. Do not guess these values and do not invent placeholders such as `webchat` when the session was not resolved that way.
 
 Minimum fields:
 
@@ -157,6 +179,8 @@ Each node in `nodes` should track:
 ## 5. refs.json
 
 `refs.json` stores execution bindings.
+
+The binding fields in `refs.json` must match the same discovered live session metadata used in `state.json`. Never fabricate or default them without resolving the current session first.
 
 Minimum fields:
 
@@ -217,7 +241,7 @@ For a normal node lifecycle, keep both event order and timestamps consistent wit
 
 The Orchestrator Session should read it, but it does not need to create control records for its normal internal work.
 
-If there are no explicit control actions yet, `control.jsonl` may exist as a zero-byte file.
+Create `control.jsonl` during initial run scaffolding. If there are no explicit control actions yet, it must be a zero-byte file.
 
 If `control.jsonl` is non-empty, every line must be a valid JSON object. Do not write comments, headings, or prose into this file.
 

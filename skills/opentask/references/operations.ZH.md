@@ -16,7 +16,9 @@
 - 对于 subagent 节点，写 `nodes/<nodeId>/handoff.md`
 - 写 `nodes/<nodeId>/report.md` 和 `result.json`
 
-如果 `control.jsonl` 需要先存在但还没有任何动作，就把它创建成空文件。不要往这个文件里写占位注释或普通说明文字。
+初始化 run scaffold 时就创建 `control.jsonl`；如果还没有任何显式动作，就把它创建成零字节空文件。不要往这个文件里写占位注释或普通说明文字。
+
+创建 `workflow.lock.md` 时，要保留源工作流的 canonical YAML frontmatter 结构。不要把它改写成临时的纯文字摘要。
 
 ## 2. Session 发现
 
@@ -25,6 +27,8 @@
 - `sessionKey`
 - `agentId`
 - `deliveryContext`
+
+在写 `state.json` 和 `refs.json` 之前先完成这一步。不要猜 `sourceSessionKey`、`rootSessionKey` 或 `deliveryContext`。
 
 ## 3. 创建 Subagent
 

@@ -111,9 +111,31 @@ nodes:
 ---
 ```
 
+## 3a. `workflow.lock.md` 约束
+
+`workflow.lock.md` 是某次 run 的冻结工作流快照。
+
+它必须保持与源 `workflows/*.task.md` 相同的“Markdown 正文 + YAML frontmatter”结构。
+
+冻结 run 时允许做的调整：
+
+- 在节点 prompt 中补充 run-local 路径或派发细节
+- 填入具体的节点产物目标
+- 在 frontmatter 之后补充 run-local 说明
+
+禁止把 frontmatter 工作流替换成这类临时摘要格式：
+
+- 自定义 `## run_id` 之类的章节
+- 只有 bullet 的依赖摘要
+- 没有 canonical frontmatter 字段的纯文字节点列表
+
+如果源工作流已经是合法 frontmatter 结构，就把这套结构复制到 `workflow.lock.md`，然后只针对当前 run 做具体化。
+
 ## 4. state.json
 
 Orchestrator Session 必须保持 `state.json` 最新。
+
+`sourceSessionKey`、`sourceAgentId`、`deliveryContext` 和 `rootSessionKey` 必须来自当前 run 的真实 session discovery。不要猜这些值，也不要随手写出 `webchat` 这类未真实解析得到的占位值。
 
 最小字段：
 
@@ -157,6 +179,8 @@ Orchestrator Session 必须保持 `state.json` 最新。
 ## 5. refs.json
 
 `refs.json` 用于保存执行绑定关系。
+
+`refs.json` 里的绑定字段必须与 `state.json` 中基于真实 session discovery 得到的值一致。不要在没有先解析当前 session 的情况下伪造或默认填充这些字段。
 
 最小字段：
 
@@ -217,7 +241,7 @@ Orchestrator Session 必须保持 `state.json` 最新。
 
 Orchestrator Session 应该读取它，但不需要为自己的正常内部工作写 control 记录。
 
-如果还没有任何显式 control 动作，`control.jsonl` 可以是一个零字节空文件。
+在初始化 run scaffold 时就创建 `control.jsonl`。如果还没有任何显式 control 动作，它必须是一个零字节空文件。
 
 如果 `control.jsonl` 非空，那么每一行都必须是一个合法的 JSON 对象。不要在这个文件里写注释、标题或普通说明文字。
 

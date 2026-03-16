@@ -16,7 +16,9 @@ Use normal file tools to:
 - write `nodes/<nodeId>/handoff.md` for subagent nodes
 - write `nodes/<nodeId>/report.md` and `result.json`
 
-When `control.jsonl` must exist before any actions are appended, create it as an empty file. Do not write placeholder comments or prose into that file.
+When bootstrapping a run, create `control.jsonl` immediately as an empty file unless explicit control actions already exist. Do not write placeholder comments or prose into that file.
+
+When creating `workflow.lock.md`, preserve the canonical YAML frontmatter workflow shape from the source workflow. Do not replace it with an ad hoc prose summary.
 
 ## 2. Session Discovery
 
@@ -25,6 +27,8 @@ Use `sessions_list` to resolve the current session entry and capture:
 - `sessionKey`
 - `agentId`
 - `deliveryContext`
+
+Do this before writing `state.json` or `refs.json`. Never guess `sourceSessionKey`, `rootSessionKey`, or `deliveryContext`.
 
 ## 3. Subagent Creation
 
