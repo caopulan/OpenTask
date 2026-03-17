@@ -17,6 +17,7 @@ from .models import (
     RunActionRequest,
     RunControlAction,
     RunEvent,
+    RunNodeDocument,
     RunRefs,
     RunState,
     WorkflowDefinition,
@@ -140,6 +141,9 @@ class OpenTaskService:
 
     def get_events(self, run_id: str, limit: int | None = None) -> list[RunEvent]:
         return self.store.load_events(run_id, limit=limit)
+
+    def get_node_documents(self, run_id: str, node_id: str) -> list[RunNodeDocument]:
+        return self.store.load_node_documents(run_id, node_id)
 
     async def bind_run(
         self,

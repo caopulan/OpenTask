@@ -125,6 +125,15 @@ class NodeWorkingMemory(OpenTaskModel):
     handoff: str | None = None
 
 
+class RunNodeDocument(OpenTaskModel):
+    path: str
+    label: Literal["Report", "Summary", "Findings", "Progress", "Plan", "Handoff", "Result", "Artifact"]
+    category: Literal["artifact", "working_memory"] = Field(alias="category")
+    format: Literal["markdown", "json", "text"]
+    content: str
+    truncated: bool = False
+
+
 class NodeState(OpenTaskModel):
     model_config = ConfigDict(
         populate_by_name=True,

@@ -1,4 +1,4 @@
-import type { CreateRunInput, RunEvent, RunState } from "./types";
+import type { CreateRunInput, RunEvent, RunNodeDocument, RunState } from "./types";
 
 const apiBase = import.meta.env.VITE_API_BASE?.replace(/\/$/, "") ?? "";
 
@@ -42,6 +42,10 @@ export function fetchRun(runId: string): Promise<RunState> {
 
 export function fetchEvents(runId: string): Promise<RunEvent[]> {
   return request<RunEvent[]>(`/api/runs/${runId}/events`);
+}
+
+export function fetchNodeDocuments(runId: string, nodeId: string): Promise<RunNodeDocument[]> {
+  return request<RunNodeDocument[]>(`/api/runs/${runId}/nodes/${nodeId}/documents`);
 }
 
 export function createRun(input: CreateRunInput): Promise<RunState> {

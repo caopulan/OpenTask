@@ -100,6 +100,15 @@ def create_app(service: OpenTaskService | None = None) -> FastAPI:
         except FileNotFoundError as exc:
             raise HTTPException(status_code=404, detail=f"run not found: {run_id}") from exc
 
+    @app.get("/api/runs/{run_id}/nodes/{node_id}/documents")
+    async def get_node_documents(run_id: str, node_id: str) -> list[dict]:
+        try:
+            return [_serialize(document) for document in service.get_node_documents(run_id, node_id)]
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     @app.post("/api/runs/{run_id}/actions/{action}")
     async def run_action(run_id: str, action: str, request: RunActionRequest | None = None) -> dict:
         payload = request or RunActionRequest()

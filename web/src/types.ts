@@ -28,6 +28,15 @@ export type NodeWorkingMemory = {
   handoff?: string | null;
 };
 
+export type RunNodeDocument = {
+  path: string;
+  label: "Report" | "Summary" | "Findings" | "Progress" | "Plan" | "Handoff" | "Result" | "Artifact";
+  category: "artifact" | "working_memory";
+  format: "markdown" | "json" | "text";
+  content: string;
+  truncated: boolean;
+};
+
 export type RunNode = {
   id: string;
   title: string;

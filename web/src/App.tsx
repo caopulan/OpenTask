@@ -1,16 +1,36 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState, useTransition } from "react";
 
-import { createRun, fetchEvents, fetchRun, fetchRuns, runAction, subscribeRun } from "./api";
-import { RunSidebar } from "./components/RunSidebar";
-import { WorkflowGraph } from "./components/WorkflowGraph";
+import {
+  createRun,
+  fetchEvents,
+  fetchNodeDocuments,
+  fetchRun,
+  fetchRuns,
+  runAction,
+  subscribeRun,
+} from "./api";
 import { InspectorRail } from "./components/InspectorRail";
+import { RunOverviewHero } from "./components/RunOverviewHero";
+import { RunSidebar } from "./components/RunSidebar";
+import { StageBoard } from "./components/StageBoard";
 import { TimelineStrip } from "./components/TimelineStrip";
+import { WorkflowGraph } from "./components/WorkflowGraph";
+import { currentFocusNode, pickDefaultNodeId, summarizeRun } from "./utils";
+
+type ViewTab = "stages" | "activity" | "flow";
+
+const tabs: Array<{ id: ViewTab; label: string; description: string }> = [
+  { id: "stages", label: "Stages", description: "Follow the workflow in execution order." },
+  { id: "activity", label: "Activity", description: "Inspect the latest events and operator-visible history." },
+  { id: "flow", label: "Flow", description: "Open the dependency graph when you need the full map." },
+];
 
 function App() {
   const queryClient = useQueryClient();
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<ViewTab>("stages");
   const [outboundMessage, setOutboundMessage] = useState("OpenTask control-plane ping.");
   const [cronPatch, setCronPatch] = useState('{\n  "enabled": true\n}');
   const [actionError, setActionError] = useState<string | null>(null);
@@ -24,7 +44,7 @@ function App() {
 
   const activeRunId = useMemo(() => {
     const runIds = runsQuery.data?.map((run) => run.runId) ?? [];
-    if (selectedRunId && runIds.includes(selectedRunId)) {
+    if (selectedRunId) {
       return selectedRunId;
     }
     return runIds[0] ?? null;
@@ -51,6 +71,7 @@ function App() {
       queryClient.setQueryData(["run", activeRunId], run);
       queryClient.invalidateQueries({ queryKey: ["runs"] });
       queryClient.invalidateQueries({ queryKey: ["events", activeRunId] });
+      queryClient.invalidateQueries({ queryKey: ["documents", activeRunId] });
     });
   }, [activeRunId, queryClient]);
 
@@ -66,6 +87,7 @@ function App() {
       startSelection(() => {
         setSelectedRunId(run.runId);
         setSelectedNodeId(null);
+        setActiveTab("stages");
       });
     },
   });
@@ -82,6 +104,7 @@ function App() {
       queryClient.setQueryData(["run", run.runId], run);
       queryClient.invalidateQueries({ queryKey: ["runs"] });
       queryClient.invalidateQueries({ queryKey: ["events", run.runId] });
+      queryClient.invalidateQueries({ queryKey: ["documents", run.runId] });
     },
     onError: (error) => {
       setActionError(error instanceof Error ? error.message : "Action failed.");
@@ -96,28 +119,34 @@ function App() {
     if (selectedNodeId && activeRun.nodes.some((node) => node.id === selectedNodeId)) {
       return selectedNodeId;
     }
-    return (
-      activeRun.nodes.find((node) => ["running", "ready", "waiting"].includes(node.status))?.id ??
-      activeRun.nodes[0]?.id ??
-      null
-    );
+    return pickDefaultNodeId(activeRun);
   }, [activeRun, selectedNodeId]);
 
   const selectedNode = activeRun?.nodes.find((node) => node.id === effectiveSelectedNodeId) ?? null;
-  const latestEvents = useMemo(() => (eventsQuery.data ? [...eventsQuery.data].reverse() : []), [eventsQuery.data]);
+  const latestEvents = useMemo(
+    () => (eventsQuery.data ? [...eventsQuery.data].sort((left, right) => Date.parse(right.timestamp) - Date.parse(left.timestamp)) : []),
+    [eventsQuery.data],
+  );
+  const documentsQuery = useQuery({
+    queryKey: ["documents", activeRunId, effectiveSelectedNodeId],
+    queryFn: () => fetchNodeDocuments(activeRunId!, effectiveSelectedNodeId!),
+    enabled: Boolean(activeRunId && effectiveSelectedNodeId),
+  });
+
+  const overview = useMemo(() => summarizeRun(activeRun), [activeRun]);
+  const focusNode = useMemo(() => currentFocusNode(activeRun), [activeRun]);
 
   function submitCronPatch() {
     try {
       const patch = JSON.parse(cronPatch) as Record<string, unknown>;
       actionMutation.mutate({ action: "patch_cron", patch });
     } catch {
-      setActionError("Cron patch must be valid JSON.");
+      setActionError("Schedule patch must be valid JSON.");
     }
   }
 
   return (
-    <div className="app-layout">
-      {/* Sidebar: Registry Ledger */}
+    <div className="dashboard-shell">
       <RunSidebar
         runs={runsQuery.data ?? []}
         isFetching={runsQuery.isFetching}
@@ -127,6 +156,7 @@ function App() {
           startSelection(() => {
             setSelectedRunId(id);
             setSelectedNodeId(null);
+            setActiveTab("stages");
           });
         }}
         onCreateRun={(title, taskText) => createMutation.mutate({ title, taskText })}
@@ -134,44 +164,59 @@ function App() {
         createError={createMutation.error instanceof Error ? createMutation.error.message : null}
       />
 
-      {/* Main Stage: Node Graph Canvas & Timeline */}
-      <main className="flex-col gap-4" style={{ overflow: "hidden" }}>
-        <div className="glass-panel" style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }}>
-          {/* Subtle Stage Head */}
-          <div className="flex-row items-center justify-between" style={{ padding: "16px 20px", borderBottom: "1px solid var(--border-subtle)", background: "var(--bg-card)" }}>
-            <div>
-              <span className="kicker">Orchestration Stage</span>
-              <h1 style={{ fontSize: "1.25rem", fontWeight: "600", marginTop: "2px" }}>
-                {activeRun?.title ?? "Awaiting Control Signal"}
-              </h1>
-            </div>
-            {activeRun && (
-              <div className="mono text-xs text-muted flex-row gap-4">
-                <span>{activeRun.workflowId}</span>
-                <span>source: {activeRun.sourceAgentId ?? "main"}</span>
-              </div>
-            )}
-          </div>
-          
-          <div style={{ flex: 1, position: "relative" }}>
-            <WorkflowGraph
-              run={activeRun}
-              selectedNodeId={effectiveSelectedNodeId}
-              onNodeSelect={(id) => setSelectedNodeId(id)}
-            />
-          </div>
-        </div>
+      <main className="dashboard-main">
+        <RunOverviewHero activeRun={activeRun} summary={overview} focusNode={focusNode} />
 
-        {/* Timeline Event Sequence Strip */}
-        <div style={{ display: "flex", flexDirection: "column" }}>
-          <TimelineStrip events={latestEvents} onSelectNode={(id) => setSelectedNodeId(id)} />
-        </div>
+        <section className="surface-panel workspace-panel">
+          <div className="workspace-header">
+            <div>
+              <span className="eyebrow">Views</span>
+              <h2>Read the run before you operate it</h2>
+            </div>
+            <div className="tab-strip" role="tablist" aria-label="Run views">
+              {tabs.map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  className={`tab-button ${activeTab === tab.id ? "active" : ""}`}
+                  onClick={() => setActiveTab(tab.id)}
+                >
+                  <span>{tab.label}</span>
+                  <small>{tab.description}</small>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="workspace-content">
+            {activeTab === "stages" ? (
+              <StageBoard
+                run={activeRun}
+                selectedNodeId={effectiveSelectedNodeId}
+                onSelectNode={(id) => setSelectedNodeId(id)}
+              />
+            ) : null}
+            {activeTab === "activity" ? (
+              <TimelineStrip
+                events={latestEvents}
+                onSelectNode={(id) => setSelectedNodeId(id)}
+              />
+            ) : null}
+            {activeTab === "flow" ? (
+              <WorkflowGraph
+                run={activeRun}
+                selectedNodeId={effectiveSelectedNodeId}
+                onNodeSelect={(id) => setSelectedNodeId(id)}
+              />
+            ) : null}
+          </div>
+        </section>
       </main>
 
-      {/* Right Rail: Session Inspector & Overrides */}
       <InspectorRail
         activeRun={activeRun}
         selectedNode={selectedNode}
+        focusNode={focusNode}
         actionMutation={actionMutation}
         outboundMessage={outboundMessage}
         setOutboundMessage={setOutboundMessage}
@@ -179,6 +224,8 @@ function App() {
         setCronPatch={setCronPatch}
         submitCronPatch={submitCronPatch}
         actionError={actionError}
+        documents={documentsQuery.data ?? []}
+        documentsLoading={documentsQuery.isFetching}
       />
     </div>
   );

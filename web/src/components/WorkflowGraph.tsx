@@ -1,41 +1,47 @@
 import { useEffect } from "react";
-import { ReactFlow, useNodesState, useEdgesState, Background, Controls } from "@xyflow/react";
+import { Background, Controls, ReactFlow, useEdgesState, useNodesState, type Edge, type Node } from "@xyflow/react";
 import dagre from "dagre";
+
 import type { RunState } from "../types";
 import { RunNodeCard } from "./nodes/RunNodeCard";
+
+type FlowNodeData = {
+  node: RunState["nodes"][number];
+  isSelected: boolean;
+};
 
 const nodeTypes = {
   runNode: RunNodeCard,
 };
 
-function getLayoutedElements(nodes: any[], edges: any[]) {
+function getLayoutedElements(nodes: Array<Node<FlowNodeData>>, edges: Array<Edge>) {
   const dagreGraph = new dagre.graphlib.Graph();
   dagreGraph.setDefaultEdgeLabel(() => ({}));
-  // LR = Left to Right layout
-  dagreGraph.setGraph({ rankdir: "LR", ranksep: 100, nodesep: 60 });
+  dagreGraph.setGraph({ rankdir: "TB", ranksep: 72, nodesep: 48, marginx: 24, marginy: 24 });
 
   edges.forEach((edge) => {
-    dagreGraph.setEdge(edge.source, edge.target);
+    dagreGraph.setEdge(edge.source as string, edge.target as string);
   });
 
   nodes.forEach((node) => {
-    dagreGraph.setNode(node.id, { width: 280, height: 160 });
+    dagreGraph.setNode(node.id as string, { width: 280, height: 180 });
   });
 
   dagre.layout(dagreGraph);
 
-  const newNodes = nodes.map((node) => {
-    const nodeWithPosition = dagreGraph.node(node.id);
-    return {
-      ...node,
-      position: {
-        x: nodeWithPosition.x - 140,
-        y: nodeWithPosition.y - 80,
-      },
-    };
-  });
-
-  return { nodes: newNodes, edges };
+  return {
+    nodes: nodes.map((node) => {
+      const layout = dagreGraph.node(node.id as string);
+      return {
+        ...node,
+        position: {
+          x: layout.x - 140,
+          y: layout.y - 90,
+        },
+      };
+    }),
+    edges,
+  };
 }
 
 export function WorkflowGraph({
@@ -47,8 +53,8 @@ export function WorkflowGraph({
   selectedNodeId: string | null;
   onNodeSelect: (id: string | null) => void;
 }) {
-  const [nodes, setNodes, onNodesChange] = useNodesState<any>([]);
-  const [edges, setEdges, onEdgesChange] = useEdgesState<any>([]);
+  const [nodes, setNodes, onNodesChange] = useNodesState<Node<FlowNodeData>>([]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
 
   useEffect(() => {
     if (!run) {
@@ -70,29 +76,26 @@ export function WorkflowGraph({
         source: dep,
         target: node.id,
         animated: node.status === "running" || node.status === "ready",
-        style: { stroke: "var(--border-strong)", strokeWidth: 2 },
-      }))
+        style: { stroke: "var(--line-strong)", strokeWidth: 1.6 },
+      })),
     );
 
-    const { nodes: layoutedNodes, edges: layoutedEdges } = getLayoutedElements(flowNodes, flowEdges);
-
-    setNodes(layoutedNodes);
-    setEdges(layoutedEdges);
-  }, [run, selectedNodeId, setNodes, setEdges]);
+    const layouted = getLayoutedElements(flowNodes, flowEdges);
+    setNodes(layouted.nodes);
+    setEdges(layouted.edges);
+  }, [run, selectedNodeId, setEdges, setNodes]);
 
   if (!run) {
     return (
-      <div className="flex-col items-center justify-center h-full text-muted">
-        <h3>No graph mounted</h3>
-        <p className="mt-2 text-sm max-w-md text-center">
-          The control plane stays read-mostly: pick a run on the left and the workflow map will render here.
-        </p>
+      <div className="empty-state">
+        <h3>No flow selected</h3>
+        <p>Select a run first. The dependency graph stays available as a secondary diagnostic view.</p>
       </div>
     );
   }
 
   return (
-    <div style={{ width: "100%", height: "100%", background: "var(--bg-base)", borderRadius: "var(--radius-lg)" }}>
+    <div className="flow-panel">
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -102,10 +105,13 @@ export function WorkflowGraph({
         onNodeClick={(_, node) => onNodeSelect(node.id)}
         onPaneClick={() => onNodeSelect(null)}
         fitView
+        fitViewOptions={{ padding: 0.16, minZoom: 0.65, maxZoom: 1.1 }}
+        minZoom={0.4}
+        maxZoom={1.4}
         proOptions={{ hideAttribution: true }}
       >
-        <Background color="var(--border-strong)" gap={16} />
-        <Controls showInteractive={false} />
+        <Background color="var(--line-soft)" gap={24} size={1} />
+        <Controls />
       </ReactFlow>
     </div>
   );

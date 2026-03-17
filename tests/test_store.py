@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from opentask.store import RunStore
@@ -40,3 +41,35 @@ def test_append_and_load_events(tmp_path: Path) -> None:
     events = store.load_events(state.run_id)
 
     assert events[0].event == "run.created"
+
+
+def test_load_node_documents_reads_declared_text_files_only(tmp_path: Path) -> None:
+    store = RunStore(runtime_root=tmp_path / ".opentask")
+    workflow = build_starter_workflow("Documents", "Preview outputs")
+    state, _ = store.create_run(workflow)
+    state = state.model_copy(
+        update={
+            "nodes": [
+                node.model_copy(update={"artifact_paths": [*node.artifact_paths, "nodes/execute-task/result.json"]})
+                if node.id == "execute-task"
+                else node
+                for node in state.nodes
+            ]
+        }
+    )
+    store.write_state(state)
+
+    store.write_node_report(state.run_id, "execute-task", "report.md", "# Report\n\nhello")
+    store.write_node_file(state.run_id, "execute-task", "result.json", json.dumps({"status": "ok"}))
+
+    documents = store.load_node_documents(state.run_id, "execute-task")
+
+    assert [document.label for document in documents[:5]] == [
+        "Report",
+        "Findings",
+        "Progress",
+        "Plan",
+        "Result",
+    ]
+    assert next(document for document in documents if document.label == "Report").format == "markdown"
+    assert next(document for document in documents if document.label == "Result").content.startswith("{\n  ")

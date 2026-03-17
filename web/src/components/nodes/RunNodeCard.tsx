@@ -1,64 +1,43 @@
 import { Handle, Position } from "@xyflow/react";
+import { AlertCircle, CheckCircle2, Clock3, LoaderCircle } from "lucide-react";
+
 import type { RunNode } from "../../types";
-import { statusTone, nodeKindLabel, formatTime } from "../../utils";
-import { CheckCircle2, Clock, AlertCircle, Loader2 } from "lucide-react";
+import { countDeclaredDocuments, nodeDependencyLabel, nodeKindLabel, statusBgTone, statusTone } from "../../utils";
 
-export function RunNodeCard({ data, isConnectable }: any) {
-  const node: RunNode = data.node;
-  const isSelected: boolean = data.isSelected;
-
-  const StatusIcon = () => {
-    switch (node.status) {
-      case "completed":
-        return <CheckCircle2 size={16} className={statusTone(node.status)} />;
-      case "failed":
-        return <AlertCircle size={16} className={statusTone(node.status)} />;
-      case "running":
-        return <Loader2 size={16} className={`${statusTone(node.status)} is-running-pulse`} style={{ animation: "spin 2s linear infinite" }} />;
-      case "waiting":
-      case "ready":
-        return <Clock size={16} className={statusTone(node.status)} />;
-      default:
-        return <div className={`status-pill ${statusTone(node.status).replace('status-', 'bg-')}`} style={{ width: '8px', height: '8px', padding: 0, borderRadius: '50%' }} />;
-    }
-  };
+export function RunNodeCard({ data, isConnectable }: { data: { node: RunNode; isSelected: boolean }; isConnectable: boolean }) {
+  const node = data.node;
+  const isSelected = data.isSelected;
+  const statusIcon =
+    node.status === "completed" ? (
+      <CheckCircle2 size={18} className={statusTone(node.status)} />
+    ) : node.status === "failed" ? (
+      <AlertCircle size={18} className={statusTone(node.status)} />
+    ) : node.status === "running" ? (
+      <LoaderCircle size={18} className={`${statusTone(node.status)} spin`} />
+    ) : (
+      <Clock3 size={18} className={statusTone(node.status)} />
+    );
 
   return (
-    <div className={`run-node-custom ${isSelected ? "selected" : ""}`}>
-      <Handle type="target" position={Position.Left} isConnectable={isConnectable} className="react-flow__handle react-flow__handle-left" />
-      
-      <div className="node-header">
-        <div className="flex-row items-center gap-2">
-          <span className="mono text-xs text-muted">
-            {node.id.length > 8 ? `${node.id.substring(0, 8)}...` : node.id}
-          </span>
-        </div>
-        <StatusIcon />
+    <div className={`flow-node ${isSelected ? "selected" : ""}`}>
+      <Handle type="target" position={Position.Top} isConnectable={isConnectable} />
+
+      <div className="flow-node-head">
+        <span className="eyebrow">{node.id}</span>
+        {statusIcon}
       </div>
 
-      <div className="node-title">{node.title}</div>
-      
-      <div className="node-meta">
-        <span className="bg-surface" style={{ padding: '2px 6px', borderRadius: '4px' }}>
-          {nodeKindLabel(node.kind)}
-        </span>
-        <span className="bg-surface" style={{ padding: '2px 6px', borderRadius: '4px' }}>
-          {node.outputsMode}
-        </span>
+      <h4>{node.title}</h4>
+      <p>{nodeDependencyLabel(node)}</p>
+
+      <div className="flow-node-tags">
+        <span>{nodeKindLabel(node.kind)}</span>
+        <span>{countDeclaredDocuments(node)} docs</span>
       </div>
 
-      <div className="flex-row justify-between items-center mt-4">
-        <div className="flex-col gap-1">
-          <span className="kicker">Started</span>
-          <span className="mono text-xs max-w-full truncate">{formatTime(node.startedAt).split(',')[1]?.trim() || 'N/A'}</span>
-        </div>
-        <div className="flex-col gap-1 text-right">
-          <span className="kicker">Completed</span>
-          <span className="mono text-xs">{formatTime(node.completedAt).split(',')[1]?.trim() || 'N/A'}</span>
-        </div>
-      </div>
+      <span className={`status-pill ${statusTone(node.status)} ${statusBgTone(node.status)}`}>{node.status}</span>
 
-      <Handle type="source" position={Position.Right} isConnectable={isConnectable} className="react-flow__handle react-flow__handle-right" />
+      <Handle type="source" position={Position.Bottom} isConnectable={isConnectable} />
     </div>
   );
 }

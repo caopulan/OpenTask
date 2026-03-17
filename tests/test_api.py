@@ -153,3 +153,97 @@ async def test_api_send_message_action(tmp_path: Path) -> None:
     assert message_res.status_code == 200
     assert message_res.json()["lastProgressMessage"] == "still working"
     assert gateway.outbound_messages[-1]["to"] == "channel:123"
+
+
+@pytest.mark.asyncio
+async def test_api_returns_node_document_previews(tmp_path: Path) -> None:
+    store = RunStore(runtime_root=tmp_path / ".opentask")
+    app = create_app(OpenTaskService(store=store, gateway=FakeGateway()))
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        create_res = await client.post("/api/runs", json={"taskText": "Inspect this task", "title": "Docs demo"})
+        run_id = create_res.json()["runId"]
+        state = store.load_state(run_id)
+        state = state.model_copy(
+            update={
+                "nodes": [
+                    node.model_copy(update={"artifact_paths": [*node.artifact_paths, "nodes/execute-task/result.json"]})
+                    if node.id == "execute-task"
+                    else node
+                    for node in state.nodes
+                ]
+            }
+        )
+        store.write_state(state)
+        store.write_node_report(run_id, "execute-task", "report.md", "# Report\n\nok")
+        store.write_node_file(run_id, "execute-task", "result.json", json.dumps({"status": "ok", "count": 2}))
+
+        response = await client.get(f"/api/runs/{run_id}/nodes/execute-task/documents")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload[0]["label"] == "Report"
+    assert payload[0]["format"] == "markdown"
+    result_doc = next(document for document in payload if document["label"] == "Result")
+    assert result_doc["format"] == "json"
+    assert '"status": "ok"' in result_doc["content"]
+
+
+@pytest.mark.asyncio
+async def test_api_omits_missing_node_document_files(tmp_path: Path) -> None:
+    store = RunStore(runtime_root=tmp_path / ".opentask")
+    app = create_app(OpenTaskService(store=store, gateway=FakeGateway()))
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        create_res = await client.post("/api/runs", json={"taskText": "Inspect this task", "title": "Missing docs demo"})
+        run_id = create_res.json()["runId"]
+
+        response = await client.get(f"/api/runs/{run_id}/nodes/execute-task/documents")
+
+    assert response.status_code == 200
+    payload = response.json()
+    labels = {document["label"] for document in payload}
+    assert "Report" not in labels
+    assert labels == {"Plan", "Findings", "Progress"}
+
+
+@pytest.mark.asyncio
+async def test_api_rejects_document_paths_outside_run_directory(tmp_path: Path) -> None:
+    store = RunStore(runtime_root=tmp_path / ".opentask")
+    app = create_app(OpenTaskService(store=store, gateway=FakeGateway()))
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        create_res = await client.post("/api/runs", json={"taskText": "Inspect this task", "title": "Unsafe docs demo"})
+        run_id = create_res.json()["runId"]
+        state = store.load_state(run_id)
+        state = state.model_copy(
+            update={
+                "nodes": [
+                    node.model_copy(update={"artifact_paths": ["../escape.md"]}) if node.id == "execute-task" else node
+                    for node in state.nodes
+                ]
+            }
+        )
+        store.write_state(state)
+
+        response = await client.get(f"/api/runs/{run_id}/nodes/execute-task/documents")
+
+    assert response.status_code == 400
+    assert "path escapes run directory" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_api_marks_truncated_document_previews(tmp_path: Path) -> None:
+    store = RunStore(runtime_root=tmp_path / ".opentask")
+    app = create_app(OpenTaskService(store=store, gateway=FakeGateway()))
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        create_res = await client.post("/api/runs", json={"taskText": "Inspect this task", "title": "Long docs demo"})
+        run_id = create_res.json()["runId"]
+        store.write_node_report(run_id, "execute-task", "report.md", "# Report\n\n" + ("x" * 13_000))
+
+        response = await client.get(f"/api/runs/{run_id}/nodes/execute-task/documents")
+
+    assert response.status_code == 200
+    report_doc = next(document for document in response.json() if document["label"] == "Report")
+    assert report_doc["truncated"] is True

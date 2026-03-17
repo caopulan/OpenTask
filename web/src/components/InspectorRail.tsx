@@ -1,10 +1,21 @@
-import type { RunState, RunNode } from "../types";
-import { formatTime, deliveryLabel, statusTone, statusBgTone, nodeKindLabel } from "../utils";
-import { Play, Pause, RefreshCw, CheckCircle, SkipForward, ArrowRight } from "lucide-react";
+import { CheckCircle2, Pause, Play, RefreshCw, Send, SkipForward } from "lucide-react";
+import { useState } from "react";
+
+import type { RunNode, RunNodeDocument, RunState } from "../types";
+import {
+  deliveryLabel,
+  documentPreviewLabel,
+  formatTime,
+  nodeDependencyLabel,
+  nodeKindLabel,
+  statusBgTone,
+  statusTone,
+} from "../utils";
 
 export function InspectorRail({
   activeRun,
   selectedNode,
+  focusNode,
   actionMutation,
   outboundMessage,
   setOutboundMessage,
@@ -12,162 +23,236 @@ export function InspectorRail({
   setCronPatch,
   submitCronPatch,
   actionError,
+  documents,
+  documentsLoading,
 }: {
   activeRun: RunState | undefined;
   selectedNode: RunNode | null;
-  actionMutation: any;
+  focusNode: RunNode | null;
+  actionMutation: {
+    isPending: boolean;
+    mutate: (payload: { action: string; nodeId?: string; message?: string; patch?: Record<string, unknown> }) => void;
+  };
   outboundMessage: string;
   setOutboundMessage: (msg: string) => void;
   cronPatch: string;
   setCronPatch: (patch: string) => void;
   submitCronPatch: () => void;
   actionError: string | null;
+  documents: RunNodeDocument[];
+  documentsLoading: boolean;
 }) {
-  return (
-    <aside className="glass-panel flex-col" style={{ overflow: "hidden", padding: "16px", paddingRight: "4px" }}>
-      <div className="list-container" style={{ flex: 1, paddingRight: "12px" }}>
-        {/* Run Controls & Details */}
-        <section className="mb-4">
-          <div className="flex-row items-center justify-between mb-4">
-            <div>
-              <span className="kicker">Session Ledger</span>
-              <h2 className="text-sm font-semibold truncate max-w-[200px]" style={{ fontSize: "1.1rem" }}>
-                {selectedNode?.title ?? activeRun?.runId ?? "No run"}
-              </h2>
-            </div>
-          </div>
+  const [activeDocumentPath, setActiveDocumentPath] = useState<string | null>(null);
+  const activeDocument =
+    documents.find((document) => document.path === activeDocumentPath) ?? documents[0] ?? null;
 
-          <div className="flex-row gap-2 mb-4">
+  return (
+    <aside className="surface-panel details-rail">
+      <div className="details-header">
+        <div>
+          <span className="eyebrow">Details</span>
+          <h2>{selectedNode?.title ?? activeRun?.title ?? "No selection"}</h2>
+        </div>
+        {selectedNode ? (
+          <span className={`status-pill ${statusTone(selectedNode.status)} ${statusBgTone(selectedNode.status)}`}>
+            {selectedNode.status}
+          </span>
+        ) : null}
+      </div>
+
+      <div className="details-scroll">
+        <section className="details-section">
+          <span className="eyebrow">Operator actions</span>
+          <div className="action-cluster">
             <button
+              type="button"
               className="btn-primary"
               disabled={!activeRun || actionMutation.isPending}
               onClick={() => actionMutation.mutate({ action: activeRun?.status === "paused" ? "resume" : "pause" })}
             >
               {activeRun?.status === "paused" ? <Play size={16} /> : <Pause size={16} />}
-              {activeRun?.status === "paused" ? "Resume" : "Pause"}
+              {activeRun?.status === "paused" ? "Resume run" : "Pause run"}
             </button>
             <button
+              type="button"
               className="btn-secondary"
+              disabled={!selectedNode || actionMutation.isPending}
+              onClick={() => selectedNode && actionMutation.mutate({ action: "retry", nodeId: selectedNode.id })}
+            >
+              <RefreshCw size={16} />
+              Retry
+            </button>
+            <button
+              type="button"
+              className="btn-secondary"
+              disabled={!selectedNode || actionMutation.isPending}
+              onClick={() => selectedNode && actionMutation.mutate({ action: "skip", nodeId: selectedNode.id })}
+            >
+              <SkipForward size={16} />
+              Skip
+            </button>
+            {selectedNode?.kind === "approval" ? (
+              <button
+                type="button"
+                className="btn-secondary"
+                disabled={actionMutation.isPending}
+                onClick={() => actionMutation.mutate({ action: "approve", nodeId: selectedNode.id })}
+              >
+                <CheckCircle2 size={16} />
+                Approve
+              </button>
+            ) : null}
+          </div>
+        </section>
+
+        <section className="details-section info-card">
+          <span className="eyebrow">Current focus</span>
+          {focusNode ? (
+            <>
+              <strong>{focusNode.title}</strong>
+              <p>
+                {nodeKindLabel(focusNode.kind)} · {nodeDependencyLabel(focusNode)}
+              </p>
+            </>
+          ) : (
+            <>
+              <strong>Nothing is waiting on you</strong>
+              <p>This run does not have an active stage right now.</p>
+            </>
+          )}
+        </section>
+
+        {selectedNode ? (
+          <section className="details-section">
+            <div className="section-head">
+              <div>
+                <span className="eyebrow">Outcome preview</span>
+                <h3>{selectedNode.title}</h3>
+              </div>
+              <span className="quiet-meta">{documents.length} docs</span>
+            </div>
+
+            {documents.length ? (
+              <>
+                <div className="doc-chip-row">
+                  {documents.map((document) => (
+                    <button
+                      key={document.path}
+                      type="button"
+                      className={`doc-chip ${activeDocument?.path === document.path ? "active" : ""}`}
+                      onClick={() => setActiveDocumentPath(document.path)}
+                    >
+                      {document.label}
+                    </button>
+                  ))}
+                </div>
+
+                {activeDocument ? (
+                  <article className="document-card">
+                    <div className="document-head">
+                      <div>
+                        <strong>{documentPreviewLabel(activeDocument)}</strong>
+                        <p>{activeDocument.path}</p>
+                      </div>
+                      <span className="quiet-meta">{activeDocument.format}</span>
+                    </div>
+                    <pre>{activeDocument.content}</pre>
+                  </article>
+                ) : null}
+              </>
+            ) : (
+              <div className="document-card empty">
+                <strong>{documentsLoading ? "Loading preview…" : "No preview yet"}</strong>
+                <p>Available node docs will show up here once the stage has written report or working-memory files.</p>
+              </div>
+            )}
+          </section>
+        ) : null}
+
+        <section className="details-section metadata-grid">
+          <article className="metadata-card">
+            <span className="eyebrow">Delivery</span>
+            <strong>{deliveryLabel(activeRun?.deliveryContext)}</strong>
+            <p>Last progress: {activeRun?.lastProgressMessage ?? "none sent"}</p>
+          </article>
+          <article className="metadata-card">
+            <span className="eyebrow">Run IDs</span>
+            <strong>{activeRun?.runId ?? "n/a"}</strong>
+            <p>{activeRun?.workflowId ?? "No workflow selected"}</p>
+          </article>
+          <article className="metadata-card">
+            <span className="eyebrow">Sessions</span>
+            <strong>{selectedNode?.childSessionKey ?? selectedNode?.sessionKey ?? activeRun?.rootSessionKey ?? "n/a"}</strong>
+            <p>Updated {formatTime(activeRun?.updatedAt)}</p>
+          </article>
+        </section>
+
+        <details className="advanced-box">
+          <summary>Advanced controls</summary>
+          <div className="advanced-content">
+            <button
+              type="button"
+              className="btn-secondary full-width"
               disabled={!activeRun || actionMutation.isPending}
               onClick={() => actionMutation.mutate({ action: "tick" })}
             >
-              <RefreshCw size={16} /> Force Tick
+              <RefreshCw size={16} />
+              Force tick
             </button>
-          </div>
 
-          <div className="card flex-col gap-3">
-            <div className="flex-col gap-1">
-              <span className="kicker">Root Session</span>
-              <span className="mono text-sm">{activeRun?.rootSessionKey ?? activeRun?.driverSessionKey ?? "n/a"}</span>
-            </div>
-            <div className="flex-col gap-1">
-              <span className="kicker">Delivery Target</span>
-              <span className="mono text-sm">{deliveryLabel(activeRun?.deliveryContext)}</span>
-            </div>
-            <div className="flex-col gap-1">
-              <span className="kicker">Last Progress</span>
-              <span className="text-sm">{activeRun?.lastProgressMessage ?? "none sent"}</span>
-              <span className="mono text-xs text-muted">{formatTime(activeRun?.lastProgressMessageAt)}</span>
-            </div>
-          </div>
-        </section>
-
-        {/* Node Inspector */}
-        {selectedNode && (
-          <section className="mt-4 mb-4">
-            <div className="flex-row items-center justify-between mb-2">
-              <span className="kicker">Node Inspector</span>
-              <span className={`status-pill ${statusTone(selectedNode.status)} ${statusBgTone(selectedNode.status)}`}>
-                {selectedNode.status}
-              </span>
-            </div>
-
-            <div className="card flex-col gap-4">
-              <div className="flex-row items-center gap-2 flex-wrap pb-3" style={{ borderBottom: "1px solid var(--border-subtle)" }}>
-                <span className="bg-surface mono text-xs px-2 py-1 rounded">{nodeKindLabel(selectedNode.kind)}</span>
-                <span className="bg-surface mono text-xs px-2 py-1 rounded">{selectedNode.outputsMode}</span>
-                <span className="bg-surface mono text-xs px-2 py-1 rounded">{selectedNode.needs.length ? `${selectedNode.needs.length} deps` : "entry"}</span>
-              </div>
-
-              <div className="flex-col gap-3">
-                <div className="flex-col gap-1">
-                  <span className="kicker">Session Binding</span>
-                  <span className="mono text-sm text-secondary">{selectedNode.childSessionKey ?? selectedNode.sessionKey ?? "pending"}</span>
-                </div>
-                <div className="flex-col gap-1">
-                  <span className="kicker">Artifact Paths</span>
-                  {selectedNode.artifactPaths.length ? (
-                    <ul className="pl-4 text-sm mono text-secondary m-0">
-                      {selectedNode.artifactPaths.map(path => <li key={path}>{path}</li>)}
-                    </ul>
-                  ) : <span className="mono text-sm text-muted">none declared</span>}
-                </div>
-              </div>
-
-              {/* Node actions */}
-              <div className="flex-col gap-2 mt-2 pt-4" style={{ borderTop: "1px solid var(--border-subtle)" }}>
-                <div className="flex-row gap-2 flex-wrap">
-                  <button className="btn-secondary" style={{ flex: 1, padding: "8px" }} disabled={actionMutation.isPending} onClick={() => actionMutation.mutate({ action: "retry", nodeId: selectedNode.id })}>
-                    <RefreshCw size={14} /> Retry
-                  </button>
-                  <button className="btn-secondary" style={{ flex: 1, padding: "8px" }} disabled={actionMutation.isPending} onClick={() => actionMutation.mutate({ action: "skip", nodeId: selectedNode.id })}>
-                    <SkipForward size={14} /> Skip
-                  </button>
-                </div>
-                {selectedNode.kind === "approval" && (
-                  <button className="btn-primary" style={{ width: "100%", padding: "8px" }} disabled={actionMutation.isPending} onClick={() => actionMutation.mutate({ action: "approve", nodeId: selectedNode.id })}>
-                    <CheckCircle size={14} /> Approve Gate
-                  </button>
-                )}
-              </div>
-            </div>
-          </section>
-        )}
-
-        {/* Override Composers */}
-        <section className="mt-4 flex-col gap-4">
-          <div className="card flex-col gap-2">
-            <span className="kicker">Manual Override</span>
-            <textarea 
-              className="input-base" 
-              rows={3} 
-              value={outboundMessage} 
-              onChange={(e) => setOutboundMessage(e.target.value)} 
-              placeholder="Send instruction..."
-            />
-            <button 
-              className="btn-primary mt-2" 
+            <label className="field-block">
+              <span className="eyebrow">Send message</span>
+              <textarea
+                className="input-base"
+                rows={3}
+                value={outboundMessage}
+                onChange={(event) => setOutboundMessage(event.target.value)}
+                placeholder="Send an operator-visible update"
+              />
+            </label>
+            <button
+              type="button"
+              className="btn-secondary full-width"
               disabled={actionMutation.isPending || !activeRun?.deliveryContext?.to}
               onClick={() => actionMutation.mutate({ action: "send_message", message: outboundMessage })}
             >
-              <ArrowRight size={14} /> Dispatch
+              <Send size={16} />
+              Dispatch message
             </button>
-          </div>
 
-          <div className="card flex-col gap-2">
-            <span className="kicker">Scheduler Override</span>
-            <textarea 
-              className="input-base mono text-xs" 
-              rows={4} 
-              value={cronPatch} 
-              onChange={(e) => setCronPatch(e.target.value)} 
-              placeholder="JSON patch..."
-            />
-            <button 
-              className="btn-secondary mt-2" 
+            <label className="field-block">
+              <span className="eyebrow">Patch schedule</span>
+              <textarea
+                className="input-base mono"
+                rows={4}
+                value={cronPatch}
+                onChange={(event) => setCronPatch(event.target.value)}
+                placeholder='{"enabled": true}'
+              />
+            </label>
+            <button
+              type="button"
+              className="btn-secondary full-width"
               disabled={actionMutation.isPending}
               onClick={submitCronPatch}
             >
-              Apply Patch
+              Apply patch
             </button>
           </div>
-        </section>
+        </details>
 
-        {actionError && (
-          <div className="mt-4 p-3 bg-failed text-failed rounded text-sm mono">
-            {actionError}
-          </div>
-        )}
+        {selectedNode?.artifactPaths.length ? (
+          <section className="details-section">
+            <span className="eyebrow">Artifact paths</span>
+            <div className="path-list">
+              {selectedNode.artifactPaths.map((path) => (
+                <code key={path}>{path}</code>
+              ))}
+            </div>
+          </section>
+        ) : null}
+
+        {actionError ? <div className="error-banner">{actionError}</div> : null}
       </div>
     </aside>
   );
