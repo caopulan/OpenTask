@@ -146,7 +146,7 @@ class NodeState(OpenTaskModel):
     kind: NodeKind
     status: NodeStatus = "pending"
     needs: list[str] = Field(default_factory=list)
-    outputs_mode: OutputMode = Field(alias="outputsMode")
+    outputs_mode: OutputMode = Field(default="report", alias="outputsMode")
     session_key: str | None = Field(default=None, alias="sessionKey")
     child_session_key: str | None = Field(default=None, alias="childSessionKey")
     run_id: str | None = Field(default=None, alias="runId")
@@ -156,6 +156,19 @@ class NodeState(OpenTaskModel):
     started_at: str | None = Field(default=None, alias="startedAt")
     completed_at: str | None = Field(default=None, alias="completedAt")
     wait_for: WaitCondition | None = Field(default=None, alias="waitFor")
+
+    @model_validator(mode="before")
+    @classmethod
+    def backfill_legacy_outputs_mode(cls, value: Any) -> Any:
+        if not isinstance(value, dict) or "outputsMode" in value:
+            return value
+        artifact_paths = value.get("artifactPaths") or []
+        kind = value.get("kind")
+        inferred_mode: OutputMode = "report" if artifact_paths or kind in {"session_turn", "subagent", "summary"} else "notify"
+        return {
+            **value,
+            "outputsMode": inferred_mode,
+        }
 
 
 class RunState(OpenTaskModel):

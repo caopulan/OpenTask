@@ -128,6 +128,30 @@ async def test_api_list_runs_tolerates_forward_compatible_runtime_fields(tmp_pat
 
 
 @pytest.mark.asyncio
+async def test_api_list_runs_tolerates_legacy_nodes_without_outputs_mode(tmp_path: Path) -> None:
+    runtime_root = tmp_path / ".opentask"
+    app = create_app(OpenTaskService(store=RunStore(runtime_root=runtime_root), gateway=FakeGateway()))
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        create_res = await client.post(
+            "/api/runs",
+            json={"taskText": "Inspect this task", "title": "Legacy compat demo"},
+        )
+        run_id = create_res.json()["runId"]
+
+        state_path = runtime_root / "runs" / run_id / "state.json"
+        payload = json.loads(state_path.read_text(encoding="utf-8"))
+        for node in payload["nodes"]:
+            node.pop("outputsMode", None)
+        state_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+        list_res = await client.get("/api/runs")
+
+    assert list_res.status_code == 200
+    assert list_res.json()[0]["nodes"][0]["outputsMode"] == "report"
+
+
+@pytest.mark.asyncio
 async def test_api_send_message_action(tmp_path: Path) -> None:
     gateway = FakeGateway()
     app = create_app(OpenTaskService(store=RunStore(runtime_root=tmp_path / ".opentask"), gateway=gateway))
