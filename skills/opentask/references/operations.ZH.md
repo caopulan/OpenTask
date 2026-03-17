@@ -28,6 +28,7 @@ session 发现必须发生在这次读取之后。如果你在读 `operations.ZH
 
 创建 `workflow.lock.md` 时，要保留源工作流的 canonical YAML frontmatter 结构。不要把它改写成临时的纯文字摘要。
 版本化源 workflow 必须保持可复用：不要把 run-local 的 registry 路径、具体 `runId` 或瞬时 run 状态写进 `workflows/*.task.md`。
+scaffolding 时不要手工编造假的时间戳或猜测性的生命周期元数据。向事件流追加记录时使用真实当前时间；如果某些字段应由 runtime 层回填，就保持它们由 runtime 来填。
 如果 bootstrap 中途被打断，先继续补齐 scaffolding，再去派发节点、追加 `node.started` 或请求 driver review。
 不要只创建 `workflows/*.task.md`，也不要只创建 `runs/<runId>/nodes/` 就停下；这种状态仍然属于无效 bootstrap。
 
@@ -107,3 +108,5 @@ cron 应该绑定 Orchestrator Session，并对内部 tick 使用非用户可见
 - 向 `events.jsonl` 追加匹配事件
 - 保持时间戳单调递增
 - 不要让 completed 节点缺失对应的生命周期记录
+- 不要为 runtime 或之前一次成功派发已经写过的生命周期迁移，再手工追加第二份重复记录
+- 如果 `edit` 一类工具没能干净地改动 `state.json` 或 `events.jsonl`，就先重新读取文件并有意识地修复；不要靠猜字段继续执行，也不要在互相冲突的生命周期记录之上继续推进 run

@@ -28,6 +28,7 @@ When bootstrapping a run, create `control.jsonl` immediately as an empty file un
 
 When creating `workflow.lock.md`, preserve the canonical YAML frontmatter workflow shape from the source workflow. Do not replace it with an ad hoc prose summary.
 Keep the versioned source workflow reusable: do not write run-local registry paths, concrete `runId` values, or transient run status text into `workflows/*.task.md`.
+Do not hand-author synthetic timestamps or guessed lifecycle metadata while scaffolding. Use the actual current time when you append an event, or leave the field for the runtime layer to fill.
 If bootstrap is interrupted, resume file creation and finish scaffolding before you dispatch a node, append `node.started`, or request driver review.
 Do not stop after creating only `workflows/*.task.md` or only `runs/<runId>/nodes/`; that is still an invalid bootstrap.
 
@@ -107,3 +108,5 @@ Whenever you change node or run state:
 - append the matching event to `events.jsonl`
 - keep timestamps monotonic
 - do not leave completed nodes without their matching lifecycle records
+- do not append a second hand-authored copy of a lifecycle transition that was already written by the runtime or a previous successful dispatch
+- if an edit tool fails to mutate `state.json` or `events.jsonl` cleanly, reread the file and repair it deliberately; do not guess missing fields and do not continue execution on top of conflicting lifecycle records

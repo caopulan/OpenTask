@@ -136,7 +136,7 @@ Always include:
 
 Use these node kinds:
 
-- `session_turn`: work in the Orchestrator Session or another persistent session
+- `session_turn`: work in a persistent node-bound session; for real OpenTask runs this should normally be a dedicated workflow node session rather than the root Orchestrator Session, unless the operator explicitly asked for inline execution in the root session
 - `subagent`: delegated isolated work
 - `wait`: explicit waiting state
 - `approval`: explicit operator or user gate
@@ -194,6 +194,8 @@ On each orchestration pass:
 
 Every node transition must be reflected in both `state.json` and `events.jsonl`.
 
+Do not fabricate timestamps or hand-edit duplicate lifecycle records after a runtime dispatch has already written the authoritative transition. If `node.started` was already appended for a node, repair the existing files deliberately instead of appending a second start event with guessed metadata.
+
 Do not skip lifecycle events for `session_turn`, `summary`, `wait`, or `approval` nodes. A completed node should normally have a complete audit chain such as:
 
 - `node.ready`
@@ -204,7 +206,9 @@ Do not skip lifecycle events for `session_turn`, `summary`, `wait`, or `approval
 
 ### session_turn Node
 
-Use when the parent session or a persistent named session should do the work directly.
+Use when a persistent named session should do the work directly.
+
+For a real OpenTask run, a `session_turn` node should normally be dispatched into a dedicated workflow node session keyed for that node. Do not both dispatch a dedicated node session and continue doing the same substantive node work in the root Orchestrator Session. Pick one executor for the node and keep that ownership singular.
 
 The dispatched execution brief must tell the executor:
 
@@ -221,6 +225,7 @@ Before dispatching a `session_turn` or `summary` node:
 - append `node.started`
 - set the node status to `running`
 - update `updatedAt`
+- if the node is being dispatched to a dedicated node session, stop doing substantive task work for that node in the Orchestrator Session immediately after dispatch; the root session should return to orchestration, monitoring, and review only
 
 ### subagent Node
 

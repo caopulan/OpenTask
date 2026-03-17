@@ -57,10 +57,12 @@
 - 让 OpenClaw 执行节点和 cron，让 OpenTask 记录 registry 状态和 control。
 - 必要时直接写 workflow 和 run 文件，不要依赖特殊的 OpenTask runtime 命令才能继续推进。
 - 按 references 中定义的协议有意识地更新 `state.json`、`refs.json`、`events.jsonl`。
+- 不要伪造或回填虚假的时间戳、session key、delivery 元数据、cron id 或生命周期状态。应使用真实发现到的值和真实写入时刻；如果某个生命周期事件已经存在，就不要再手工追加第二份同类记录。
 - 节点输出统一写成 `report.md` 和 `result.json`。
 - 对于复杂执行节点，把节点级工作记忆写到 `runs/<runId>/nodes/<nodeId>/plan.md`、`findings.md`、`progress.md`；subagent 的父子 handoff 写到 `handoff.md`。
 - 在 run scaffolding 阶段就创建 `workflow.lock.md`、`state.json`、`refs.json`、`events.jsonl`、`control.jsonl`、节点目录、规范 working-memory 文件，以及完整的初始节点元数据，然后再进入实质执行。
 - 只创建出半截 run 目录也算协议失败。如果你发现某个 run 只有 `nodes/`，或者只有源 workflow 文件，没有完整 scaffold，就必须先修复缺失文件，再继续任何规划、调研、用户通知或节点派发。
 - 在 bootstrap 完成前，不要派发第一个节点，不要追加 `node.started`，也不要请求 driver review。如果 scaffolding 中途被打断，必须先补齐缺失文件，再继续执行。
+- 一旦某个节点已经被派发到专用 node session 或 child session，Orchestrator Session 就必须停止亲自做这个节点的实质任务。它可以继续做监控、写 registry、处理 control、审阅结果，但不能在 root session 里并行继续做同一份调研、浏览、写作或分析。
 - 内部 cron turn 只用于 orchestration，不得使用用户可见的 announce 投递。只有在真正的里程碑节点上，才通过显式 progress message 给用户发更新。
 - 除非当前 assignment 明确要求，否则不要在 repo 根或旁路位置创建 `task_plan.md`、`findings.md`、`progress.md` 这类额外 planning memory 文件。应使用 workflow/run registry 和规范的节点级 working-memory 文件。

@@ -62,10 +62,12 @@ If you cannot read this file or the linked references from the current session, 
 - Let OpenClaw execute nodes and cron turns; let OpenTask record registry state and controls.
 - Write workflow and run files directly when needed; do not depend on a special OpenTask runtime command to make progress.
 - Update `state.json`, `refs.json`, and `events.jsonl` intentionally as part of the orchestration protocol described in the references.
+- Do not fabricate or backdate timestamps, session keys, delivery metadata, cron ids, or lifecycle transitions. Use discovered values and the real write-time clock, or leave the field for the runtime layer to populate. If a lifecycle event already exists, do not append a second hand-authored copy of the same transition.
 - Leave node outputs as `report.md` and `result.json`.
 - For complex execution nodes, keep node-local working memory in `runs/<runId>/nodes/<nodeId>/plan.md`, `findings.md`, and `progress.md`; subagent handoffs belong in `handoff.md`.
 - During run scaffolding, create `workflow.lock.md`, `state.json`, `refs.json`, `events.jsonl`, `control.jsonl`, node directories, canonical working-memory files, and complete initial node metadata before substantial execution begins.
 - A partially created run directory is still a protocol failure. If you notice a run with only `nodes/` or only a source workflow file, repair the missing scaffold files before any further planning, research, user messaging, or dispatch.
 - Do not dispatch the first node, append `node.started`, or request driver review until bootstrap is complete. If scaffolding is interrupted, repair the missing files first and only then continue execution.
+- After a node has been dispatched to a dedicated node session or child session, the Orchestrator Session must stop doing that node's substantive task work itself. It may monitor, update registry state, handle controls, and review results, but it must not continue the same research, browsing, writing, or analysis in parallel from the root session.
 - Internal cron turns are orchestration-only. They must not use user-visible announce delivery. Send user-facing updates only through explicit progress messages at meaningful milestones.
 - Do not create extra root-level or sidecar planning-memory files such as `task_plan.md`, `findings.md`, or `progress.md` unless the current assignment explicitly requires them. Use the workflow/run registry plus canonical node-local memory files instead.

@@ -136,7 +136,7 @@ Subagent Session 是通过 `sessions_spawn` 创建的子执行上下文。
 
 节点类型用法：
 
-- `session_turn`：由 Orchestrator Session 或其他持久 session 直接完成
+- `session_turn`：由持久的节点绑定 session 执行；对真实 OpenTask run，默认应使用该节点的专用 workflow node session，而不是 root Orchestrator Session，除非操作者明确要求在 root session 内联执行
 - `subagent`：委派隔离执行
 - `wait`：显式等待
 - `approval`：显式人工或用户 gate
@@ -194,6 +194,8 @@ Subagent Session 是通过 `sessions_spawn` 创建的子执行上下文。
 
 每一次节点状态迁移，都必须同时反映在 `state.json` 和 `events.jsonl` 里。
 
+不要伪造时间戳，也不要在 runtime 派发已经写入权威生命周期记录后，再手工补写重复事件。如果某个节点的 `node.started` 已经存在，就应该有意识地修复当前文件状态，而不是再追加一条带猜测元数据的第二份 `node.started`。
+
 不要跳过 `session_turn`、`summary`、`wait` 或 `approval` 节点的生命周期事件。一个正常完成的节点通常应该有完整审计链：
 
 - `node.ready`
@@ -204,7 +206,9 @@ Subagent Session 是通过 `sessions_spawn` 创建的子执行上下文。
 
 ### session_turn 节点
 
-适用于父 session 或其他持久 named session 直接完成的工作。
+适用于由持久 named session 直接完成的工作。
+
+对真实 OpenTask run，`session_turn` 节点默认应派发到该节点自己的专用 workflow node session。不要一边创建专用 node session，一边又在 root Orchestrator Session 里继续做同一个节点的实质工作。一个节点只能有一个真实执行者。
 
 派发时的 execution brief 必须告诉执行者：
 
@@ -221,6 +225,7 @@ Subagent Session 是通过 `sessions_spawn` 创建的子执行上下文。
 - 先追加 `node.started`
 - 把节点状态设为 `running`
 - 更新 `updatedAt`
+- 如果这个节点被派发到专用 node session，那么派发后 root Orchestrator Session 就必须立即停止该节点的实质任务执行，只保留 orchestration、监控和审阅职责
 
 ### subagent 节点
 
