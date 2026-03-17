@@ -8,6 +8,11 @@ export function RunSidebar({
   isFetching,
   isSelecting,
   activeRunId,
+  isOpen,
+  isPinned,
+  onPinToggle,
+  onRequestOpen,
+  onRequestClose,
   onSelectRun,
   onCreateRun,
   isCreating,
@@ -17,19 +22,33 @@ export function RunSidebar({
   isFetching: boolean;
   isSelecting: boolean;
   activeRunId: string | null;
+  isOpen: boolean;
+  isPinned: boolean;
+  onPinToggle: () => void;
+  onRequestOpen: () => void;
+  onRequestClose: () => void;
   onSelectRun: (id: string) => void;
   onCreateRun: (title: string, taskText: string) => void;
   isCreating: boolean;
   createError: string | null;
 }) {
   return (
-    <aside className="surface-panel runs-rail">
+    <aside
+      className={`surface-panel runs-drawer ${isOpen ? "open" : ""} ${isPinned ? "pinned" : ""}`}
+      onMouseEnter={onRequestOpen}
+      onMouseLeave={onRequestClose}
+    >
       <div className="rail-header">
         <div>
           <span className="eyebrow">Runs</span>
           <h2>OpenTask runs</h2>
         </div>
-        <span className="sync-pill">{isSelecting ? "switching" : isFetching ? "syncing" : "live"}</span>
+        <div className="rail-header-actions">
+          <span className="sync-pill">{isSelecting ? "switching" : isFetching ? "syncing" : "live"}</span>
+          <button type="button" className="drawer-action" onClick={onPinToggle}>
+            {isPinned ? "Unpin" : "Pin"}
+          </button>
+        </div>
       </div>
 
       <div className="rail-list">
@@ -42,6 +61,7 @@ export function RunSidebar({
                 key={run.runId}
                 type="button"
                 className={`run-card ${isActive ? "active" : ""}`}
+                title={`${run.title}\n${currentFocusLabel(run)}`}
                 onClick={() => onSelectRun(run.runId)}
               >
                 <div className="run-card-head">

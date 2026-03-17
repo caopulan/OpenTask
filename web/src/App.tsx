@@ -3,7 +3,6 @@ import { useEffect, useMemo, useState, useTransition } from "react";
 
 import {
   createRun,
-  fetchEvents,
   fetchNodeDocuments,
   fetchRun,
   fetchRuns,
@@ -14,15 +13,13 @@ import { InspectorRail } from "./components/InspectorRail";
 import { RunOverviewHero } from "./components/RunOverviewHero";
 import { RunSidebar } from "./components/RunSidebar";
 import { StageBoard } from "./components/StageBoard";
-import { TimelineStrip } from "./components/TimelineStrip";
 import { WorkflowGraph } from "./components/WorkflowGraph";
 import { currentFocusNode, pickDefaultNodeId, summarizeRun } from "./utils";
 
-type ViewTab = "stages" | "activity" | "flow";
+type ViewTab = "stages" | "flow";
 
 const tabs: Array<{ id: ViewTab; label: string; description: string }> = [
   { id: "stages", label: "Stages", description: "Follow the workflow in execution order." },
-  { id: "activity", label: "Activity", description: "Inspect the latest events and operator-visible history." },
   { id: "flow", label: "Flow", description: "Open the dependency graph when you need the full map." },
 ];
 
@@ -35,6 +32,8 @@ function App() {
   const [cronPatch, setCronPatch] = useState('{\n  "enabled": true\n}');
   const [actionError, setActionError] = useState<string | null>(null);
   const [isSelecting, startSelection] = useTransition();
+  const [isRunsPinned, setIsRunsPinned] = useState(false);
+  const [isRunsPeekOpen, setIsRunsPeekOpen] = useState(false);
 
   const runsQuery = useQuery({
     queryKey: ["runs"],
@@ -56,13 +55,6 @@ function App() {
     enabled: Boolean(activeRunId),
   });
 
-  const eventsQuery = useQuery({
-    queryKey: ["events", activeRunId],
-    queryFn: () => fetchEvents(activeRunId!),
-    enabled: Boolean(activeRunId),
-    refetchInterval: 4000,
-  });
-
   useEffect(() => {
     if (!activeRunId) {
       return;
@@ -70,7 +62,6 @@ function App() {
     return subscribeRun(activeRunId, (run) => {
       queryClient.setQueryData(["run", activeRunId], run);
       queryClient.invalidateQueries({ queryKey: ["runs"] });
-      queryClient.invalidateQueries({ queryKey: ["events", activeRunId] });
       queryClient.invalidateQueries({ queryKey: ["documents", activeRunId] });
     });
   }, [activeRunId, queryClient]);
@@ -103,7 +94,6 @@ function App() {
       setActionError(null);
       queryClient.setQueryData(["run", run.runId], run);
       queryClient.invalidateQueries({ queryKey: ["runs"] });
-      queryClient.invalidateQueries({ queryKey: ["events", run.runId] });
       queryClient.invalidateQueries({ queryKey: ["documents", run.runId] });
     },
     onError: (error) => {
@@ -123,10 +113,6 @@ function App() {
   }, [activeRun, selectedNodeId]);
 
   const selectedNode = activeRun?.nodes.find((node) => node.id === effectiveSelectedNodeId) ?? null;
-  const latestEvents = useMemo(
-    () => (eventsQuery.data ? [...eventsQuery.data].sort((left, right) => Date.parse(right.timestamp) - Date.parse(left.timestamp)) : []),
-    [eventsQuery.data],
-  );
   const documentsQuery = useQuery({
     queryKey: ["documents", activeRunId, effectiveSelectedNodeId],
     queryFn: () => fetchNodeDocuments(activeRunId!, effectiveSelectedNodeId!),
@@ -135,6 +121,7 @@ function App() {
 
   const overview = useMemo(() => summarizeRun(activeRun), [activeRun]);
   const focusNode = useMemo(() => currentFocusNode(activeRun), [activeRun]);
+  const isRunsDrawerOpen = isRunsPinned || isRunsPeekOpen;
 
   function submitCronPatch() {
     try {
@@ -146,32 +133,76 @@ function App() {
   }
 
   return (
-    <div className="dashboard-shell">
+    <div className={`dashboard-shell ${isRunsDrawerOpen ? "runs-drawer-visible" : ""}`}>
+      <div
+        className="runs-edge-zone"
+        aria-hidden="true"
+        onMouseEnter={() => setIsRunsPeekOpen(true)}
+      />
+      <button
+        type="button"
+        className="runs-mobile-toggle"
+        onClick={() => setIsRunsPeekOpen((current) => !current)}
+      >
+        Runs
+      </button>
+      <button
+        type="button"
+        aria-label="Close runs drawer"
+        className={`runs-overlay-backdrop ${isRunsDrawerOpen ? "visible" : ""}`}
+        onClick={() => {
+          if (!isRunsPinned) {
+            setIsRunsPeekOpen(false);
+          }
+        }}
+      />
       <RunSidebar
         runs={runsQuery.data ?? []}
         isFetching={runsQuery.isFetching}
         isSelecting={isSelecting}
         activeRunId={activeRunId}
+        isOpen={isRunsDrawerOpen}
+        isPinned={isRunsPinned}
+        onPinToggle={() => {
+          setIsRunsPinned((current) => {
+            const next = !current;
+            if (!next) {
+              setIsRunsPeekOpen(false);
+            } else {
+              setIsRunsPeekOpen(true);
+            }
+            return next;
+          });
+        }}
+        onRequestOpen={() => setIsRunsPeekOpen(true)}
+        onRequestClose={() => {
+          if (!isRunsPinned) {
+            setIsRunsPeekOpen(false);
+          }
+        }}
         onSelectRun={(id) => {
           startSelection(() => {
             setSelectedRunId(id);
             setSelectedNodeId(null);
             setActiveTab("stages");
           });
+          if (!isRunsPinned) {
+            setIsRunsPeekOpen(false);
+          }
         }}
         onCreateRun={(title, taskText) => createMutation.mutate({ title, taskText })}
         isCreating={createMutation.isPending}
         createError={createMutation.error instanceof Error ? createMutation.error.message : null}
       />
 
-      <main className="dashboard-main">
+      <main className="workspace-grid">
         <RunOverviewHero activeRun={activeRun} summary={overview} focusNode={focusNode} />
 
-        <section className="surface-panel workspace-panel">
-          <div className="workspace-header">
+        <section className="surface-panel view-pane">
+          <div className="pane-header">
             <div>
-              <span className="eyebrow">Views</span>
-              <h2>Read the run before you operate it</h2>
+              <span className="eyebrow">View</span>
+              <h2>{activeTab === "stages" ? "Stages" : "Flow"}</h2>
             </div>
             <div className="tab-strip" role="tablist" aria-label="Run views">
               {tabs.map((tab) => (
@@ -179,26 +210,20 @@ function App() {
                   key={tab.id}
                   type="button"
                   className={`tab-button ${activeTab === tab.id ? "active" : ""}`}
+                  title={tab.description}
                   onClick={() => setActiveTab(tab.id)}
                 >
                   <span>{tab.label}</span>
-                  <small>{tab.description}</small>
                 </button>
               ))}
             </div>
           </div>
 
-          <div className="workspace-content">
+          <div className="pane-scroll">
             {activeTab === "stages" ? (
               <StageBoard
                 run={activeRun}
                 selectedNodeId={effectiveSelectedNodeId}
-                onSelectNode={(id) => setSelectedNodeId(id)}
-              />
-            ) : null}
-            {activeTab === "activity" ? (
-              <TimelineStrip
-                events={latestEvents}
                 onSelectNode={(id) => setSelectedNodeId(id)}
               />
             ) : null}
@@ -211,22 +236,22 @@ function App() {
             ) : null}
           </div>
         </section>
-      </main>
 
-      <InspectorRail
-        activeRun={activeRun}
-        selectedNode={selectedNode}
-        focusNode={focusNode}
-        actionMutation={actionMutation}
-        outboundMessage={outboundMessage}
-        setOutboundMessage={setOutboundMessage}
-        cronPatch={cronPatch}
-        setCronPatch={setCronPatch}
-        submitCronPatch={submitCronPatch}
-        actionError={actionError}
-        documents={documentsQuery.data ?? []}
-        documentsLoading={documentsQuery.isFetching}
-      />
+        <InspectorRail
+          activeRun={activeRun}
+          selectedNode={selectedNode}
+          focusNode={focusNode}
+          actionMutation={actionMutation}
+          outboundMessage={outboundMessage}
+          setOutboundMessage={setOutboundMessage}
+          cronPatch={cronPatch}
+          setCronPatch={setCronPatch}
+          submitCronPatch={submitCronPatch}
+          actionError={actionError}
+          documents={documentsQuery.data ?? []}
+          documentsLoading={documentsQuery.isFetching}
+        />
+      </main>
     </div>
   );
 }

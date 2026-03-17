@@ -1,5 +1,16 @@
 import type { DeliveryContext, RunState, RunNode, RunNodeDocument } from "./types";
 
+const documentPriority: Record<RunNodeDocument["label"], number> = {
+  Progress: 0,
+  Plan: 1,
+  Findings: 2,
+  Report: 3,
+  Summary: 3,
+  Result: 4,
+  Handoff: 5,
+  Artifact: 6,
+};
+
 export function formatTime(value?: string | null): string {
   if (!value) {
     return "n/a";
@@ -156,4 +167,15 @@ export function formatEventLabel(event: string): string {
 
 export function documentPreviewLabel(document: RunNodeDocument): string {
   return document.truncated ? `${document.label} preview` : document.label;
+}
+
+export function sortDocuments(documents: RunNodeDocument[]): RunNodeDocument[] {
+  return [...documents].sort((left, right) => {
+    const leftPriority = documentPriority[left.label] ?? 99;
+    const rightPriority = documentPriority[right.label] ?? 99;
+    if (leftPriority !== rightPriority) {
+      return leftPriority - rightPriority;
+    }
+    return left.path.localeCompare(right.path);
+  });
 }

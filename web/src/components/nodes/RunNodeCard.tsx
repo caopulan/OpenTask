@@ -19,7 +19,10 @@ export function RunNodeCard({ data, isConnectable }: { data: { node: RunNode; is
     );
 
   return (
-    <div className={`flow-node ${isSelected ? "selected" : ""}`}>
+    <div
+      className={`flow-node ${isSelected ? "selected" : ""}`}
+      title={`${node.title}\n${nodeDependencyLabel(node)}\n${countDeclaredDocuments(node)} documents`}
+    >
       <Handle type="target" position={Position.Top} isConnectable={isConnectable} />
 
       <div className="flow-node-head">
@@ -28,11 +31,11 @@ export function RunNodeCard({ data, isConnectable }: { data: { node: RunNode; is
       </div>
 
       <h4>{node.title}</h4>
-      <p>{nodeDependencyLabel(node)}</p>
+      <p className="flow-node-subtle">{nodeDependencyLabel(node)}</p>
 
       <div className="flow-node-tags">
-        <span>{nodeKindLabel(node.kind)}</span>
-        <span>{countDeclaredDocuments(node)} docs</span>
+        <span title={`Stage type: ${nodeKindLabel(node.kind)}`}>{nodeKindLabel(node.kind)}</span>
+        <span title="Declared document count">{countDeclaredDocuments(node)} docs</span>
       </div>
 
       <span className={`status-pill ${statusTone(node.status)} ${statusBgTone(node.status)}`}>{node.status}</span>

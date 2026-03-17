@@ -22,39 +22,38 @@ export function RunOverviewHero({
       <section className="surface-panel overview-hero empty-state">
         <span className="eyebrow">Overview</span>
         <h1>Select a run</h1>
-        <p>Choose a run from the left rail to see progress, stages, activity, and operator controls.</p>
+        <p>Choose a run from the left rail to see progress, stages, flow, and operator controls.</p>
       </section>
     );
   }
 
   return (
     <section className="surface-panel overview-hero">
-      <div className="overview-header">
-        <div className="overview-copy">
-          <span className="eyebrow">Overview</span>
-          <div className="title-row">
-            <h1>{activeRun.title}</h1>
-            <span className={`status-pill ${statusTone(activeRun.status)} ${statusBgTone(activeRun.status)}`}>
-              {activeRun.status}
-            </span>
-          </div>
-          <p>
-            Workflow <strong>{activeRun.workflowId}</strong>
-            {" · "}
-            Last event <strong>{activeRun.lastEvent ?? "n/a"}</strong>
-          </p>
+      <div className="overview-topline">
+        <span className="eyebrow">Overview</span>
+        <span className={`status-pill ${statusTone(activeRun.status)} ${statusBgTone(activeRun.status)}`}>
+          {activeRun.status}
+        </span>
+      </div>
+
+      <h1>{activeRun.title}</h1>
+
+      <div className="overview-meta-row">
+        <div className="overview-time" title={`Last updated ${formatTime(activeRun.updatedAt)}`}>
+          <span className="eyebrow">Last update</span>
+          <strong>{formatTime(activeRun.updatedAt)}</strong>
         </div>
-        <div className="overview-meta">
-          <div>
-            <span className="eyebrow">Last update</span>
-            <strong>{formatTime(activeRun.updatedAt)}</strong>
-          </div>
-          <div>
-            <span className="eyebrow">Created</span>
-            <strong>{formatTime(activeRun.createdAt)}</strong>
-          </div>
+        <div className="overview-time" title={`Created ${formatTime(activeRun.createdAt)}`}>
+          <span className="eyebrow">Created</span>
+          <strong>{formatTime(activeRun.createdAt)}</strong>
         </div>
       </div>
+
+      <p className="overview-context">
+        Workflow <strong>{activeRun.workflowId}</strong>
+        {" · "}
+        Last event <strong>{activeRun.lastEvent ?? "n/a"}</strong>
+      </p>
 
       <div className="progress-block">
         <div className="progress-copy">
@@ -71,23 +70,15 @@ export function RunOverviewHero({
         </div>
       </div>
 
-      <div className="metric-grid">
-        <article className="metric-card">
-          <span className="eyebrow">Completed</span>
-          <strong>{summary.completed}</strong>
-          <span>Finished or terminal stages</span>
-        </article>
-        <article className="metric-card">
-          <span className="eyebrow">Active</span>
-          <strong>{summary.actionable}</strong>
-          <span>Running now or ready to go</span>
-        </article>
-        <article className="metric-card">
-          <span className="eyebrow">Blocked</span>
-          <strong>{summary.blocked}</strong>
-          <span>Waiting on deps, manual action, or files</span>
-        </article>
-        <article className="metric-card focus-card">
+      <div className="overview-stats">
+        <article
+          className="metric-card focus-card"
+          title={
+            focusNode
+              ? `${focusNode.title} · ${nodeKindLabel(focusNode.kind)} · ${nodeDependencyLabel(focusNode)}`
+              : "No stage needs attention right now."
+          }
+        >
           <span className="eyebrow">Current focus</span>
           {focusNode ? (
             <>
@@ -102,6 +93,27 @@ export function RunOverviewHero({
               <span>No stage needs attention right now.</span>
             </>
           )}
+        </article>
+        <article
+          className="metric-chip completed"
+          title="Finished or terminal stages"
+        >
+          <span>Completed</span>
+          <strong>{summary.completed}</strong>
+        </article>
+        <article
+          className="metric-chip active"
+          title="Running now or ready to go"
+        >
+          <span>Active</span>
+          <strong>{summary.actionable}</strong>
+        </article>
+        <article
+          className="metric-chip blocked"
+          title="Waiting on dependencies, manual action, or files"
+        >
+          <span>Blocked</span>
+          <strong>{summary.blocked}</strong>
         </article>
       </div>
     </section>

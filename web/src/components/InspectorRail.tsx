@@ -3,11 +3,13 @@ import { useState } from "react";
 
 import type { RunNode, RunNodeDocument, RunState } from "../types";
 import {
+  countDeclaredDocuments,
   deliveryLabel,
   documentPreviewLabel,
   formatTime,
   nodeDependencyLabel,
   nodeKindLabel,
+  sortDocuments,
   statusBgTone,
   statusTone,
 } from "../utils";
@@ -42,25 +44,31 @@ export function InspectorRail({
   documents: RunNodeDocument[];
   documentsLoading: boolean;
 }) {
-  const [activeDocumentPath, setActiveDocumentPath] = useState<string | null>(null);
+  const [documentSelection, setDocumentSelection] = useState<{ nodeId: string | null; path: string | null }>({
+    nodeId: null,
+    path: null,
+  });
+  const subjectNode = selectedNode ?? focusNode;
+  const orderedDocuments = sortDocuments(documents);
+  const activeDocumentPath = documentSelection.nodeId === subjectNode?.id ? documentSelection.path : null;
   const activeDocument =
-    documents.find((document) => document.path === activeDocumentPath) ?? documents[0] ?? null;
+    orderedDocuments.find((document) => document.path === activeDocumentPath) ?? orderedDocuments[0] ?? null;
 
   return (
-    <aside className="surface-panel details-rail">
-      <div className="details-header">
+    <aside className="surface-panel details-pane">
+      <div className="pane-header">
         <div>
           <span className="eyebrow">Details</span>
-          <h2>{selectedNode?.title ?? activeRun?.title ?? "No selection"}</h2>
+          <h2>{subjectNode?.title ?? activeRun?.title ?? "No selection"}</h2>
         </div>
-        {selectedNode ? (
-          <span className={`status-pill ${statusTone(selectedNode.status)} ${statusBgTone(selectedNode.status)}`}>
-            {selectedNode.status}
+        {subjectNode ? (
+          <span className={`status-pill ${statusTone(subjectNode.status)} ${statusBgTone(subjectNode.status)}`}>
+            {subjectNode.status}
           </span>
         ) : null}
       </div>
 
-      <div className="details-scroll">
+      <div className="pane-scroll details-scroll">
         <section className="details-section">
           <span className="eyebrow">Operator actions</span>
           <div className="action-cluster">
@@ -105,42 +113,81 @@ export function InspectorRail({
           </div>
         </section>
 
-        <section className="details-section info-card">
-          <span className="eyebrow">Current focus</span>
-          {focusNode ? (
-            <>
-              <strong>{focusNode.title}</strong>
-              <p>
-                {nodeKindLabel(focusNode.kind)} · {nodeDependencyLabel(focusNode)}
-              </p>
-            </>
-          ) : (
-            <>
-              <strong>Nothing is waiting on you</strong>
-              <p>This run does not have an active stage right now.</p>
-            </>
-          )}
-        </section>
+        {subjectNode ? (
+          <section className="details-section node-summary-card">
+            <div className="section-head">
+              <div>
+                <span className="eyebrow">Node summary</span>
+                <h3>{subjectNode.title}</h3>
+              </div>
+              <span className="quiet-meta">{countDeclaredDocuments(subjectNode)} docs</span>
+            </div>
+            <div className="details-meta-grid">
+              <div title={`Stage type: ${nodeKindLabel(subjectNode.kind)}`}>
+                <span className="eyebrow">Type</span>
+                <strong>{nodeKindLabel(subjectNode.kind)}</strong>
+              </div>
+              <div title={nodeDependencyLabel(subjectNode)}>
+                <span className="eyebrow">Dependency</span>
+                <strong>{nodeDependencyLabel(subjectNode)}</strong>
+              </div>
+              <div title="Started time">
+                <span className="eyebrow">Started</span>
+                <strong>{formatTime(subjectNode.startedAt)}</strong>
+              </div>
+              <div title="Completed time">
+                <span className="eyebrow">Completed</span>
+                <strong>{formatTime(subjectNode.completedAt)}</strong>
+              </div>
+              <div title="Output mode">
+                <span className="eyebrow">Mode</span>
+                <strong>{subjectNode.outputsMode}</strong>
+              </div>
+              <div title="Artifact count">
+                <span className="eyebrow">Artifacts</span>
+                <strong>{subjectNode.artifactPaths.length}</strong>
+              </div>
+            </div>
+          </section>
+        ) : (
+          <section className="details-section info-card">
+            <span className="eyebrow">Current focus</span>
+            {focusNode ? (
+              <>
+                <strong>{focusNode.title}</strong>
+                <p>
+                  {nodeKindLabel(focusNode.kind)} · {nodeDependencyLabel(focusNode)}
+                </p>
+              </>
+            ) : (
+              <>
+                <strong>Nothing is waiting on you</strong>
+                <p>This run does not have an active stage right now.</p>
+              </>
+            )}
+          </section>
+        )}
 
-        {selectedNode ? (
+        {subjectNode ? (
           <section className="details-section">
             <div className="section-head">
               <div>
-                <span className="eyebrow">Outcome preview</span>
-                <h3>{selectedNode.title}</h3>
+                <span className="eyebrow">Documents</span>
+                <h3>{subjectNode.title}</h3>
               </div>
-              <span className="quiet-meta">{documents.length} docs</span>
+              <span className="quiet-meta">{orderedDocuments.length} docs</span>
             </div>
 
-            {documents.length ? (
+            {orderedDocuments.length ? (
               <>
                 <div className="doc-chip-row">
-                  {documents.map((document) => (
+                  {orderedDocuments.map((document) => (
                     <button
                       key={document.path}
                       type="button"
                       className={`doc-chip ${activeDocument?.path === document.path ? "active" : ""}`}
-                      onClick={() => setActiveDocumentPath(document.path)}
+                      title={`${document.path} · ${document.format}`}
+                      onClick={() => setDocumentSelection({ nodeId: subjectNode.id, path: document.path })}
                     >
                       {document.label}
                     </button>
@@ -163,7 +210,7 @@ export function InspectorRail({
             ) : (
               <div className="document-card empty">
                 <strong>{documentsLoading ? "Loading preview…" : "No preview yet"}</strong>
-                <p>Available node docs will show up here once the stage has written report or working-memory files.</p>
+                <p>Progress, plan, findings, reports, and results will show up here when they exist.</p>
               </div>
             )}
           </section>
@@ -171,21 +218,45 @@ export function InspectorRail({
 
         <section className="details-section metadata-grid">
           <article className="metadata-card">
-            <span className="eyebrow">Delivery</span>
-            <strong>{deliveryLabel(activeRun?.deliveryContext)}</strong>
-            <p>Last progress: {activeRun?.lastProgressMessage ?? "none sent"}</p>
+            <span className="eyebrow">Progress</span>
+            <strong>{activeRun?.lastProgressMessage ?? "No progress update yet"}</strong>
+            <p>{formatTime(activeRun?.lastProgressMessageAt)}</p>
           </article>
           <article className="metadata-card">
-            <span className="eyebrow">Run IDs</span>
-            <strong>{activeRun?.runId ?? "n/a"}</strong>
+            <span className="eyebrow">Delivery</span>
+            <strong>{deliveryLabel(activeRun?.deliveryContext)}</strong>
             <p>{activeRun?.workflowId ?? "No workflow selected"}</p>
           </article>
           <article className="metadata-card">
-            <span className="eyebrow">Sessions</span>
-            <strong>{selectedNode?.childSessionKey ?? selectedNode?.sessionKey ?? activeRun?.rootSessionKey ?? "n/a"}</strong>
+            <span className="eyebrow">Run ID</span>
+            <strong>{activeRun?.runId ?? "n/a"}</strong>
+            <p>{activeRun?.lastEvent ?? "No event yet"}</p>
+          </article>
+          <article className="metadata-card">
+            <span className="eyebrow">Session</span>
+            <strong>{subjectNode?.childSessionKey ?? subjectNode?.sessionKey ?? activeRun?.rootSessionKey ?? "n/a"}</strong>
             <p>Updated {formatTime(activeRun?.updatedAt)}</p>
           </article>
         </section>
+
+        {subjectNode?.artifactPaths.length ? (
+          <section className="details-section">
+            <span className="eyebrow">Artifact paths</span>
+            <div className="path-list">
+              {subjectNode.artifactPaths.map((path) => (
+                <code key={path}>{path}</code>
+              ))}
+            </div>
+          </section>
+        ) : null}
+
+        {selectedNode?.notes.length ? (
+          <section className="details-section info-card">
+            <span className="eyebrow">Notes</span>
+            <strong>{selectedNode.notes[0]}</strong>
+            {selectedNode.notes.length > 1 ? <p>{selectedNode.notes.slice(1).join(" · ")}</p> : null}
+          </section>
+        ) : null}
 
         <details className="advanced-box">
           <summary>Advanced controls</summary>
@@ -240,17 +311,6 @@ export function InspectorRail({
             </button>
           </div>
         </details>
-
-        {selectedNode?.artifactPaths.length ? (
-          <section className="details-section">
-            <span className="eyebrow">Artifact paths</span>
-            <div className="path-list">
-              {selectedNode.artifactPaths.map((path) => (
-                <code key={path}>{path}</code>
-              ))}
-            </div>
-          </section>
-        ) : null}
 
         {actionError ? <div className="error-banner">{actionError}</div> : null}
       </div>
