@@ -2,162 +2,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState, useTransition } from "react";
 
 import { createRun, fetchEvents, fetchRun, fetchRuns, runAction, subscribeRun } from "./api";
-import type { DeliveryContext, RunEvent, RunNode, RunState } from "./types";
-
-function formatTime(value?: string | null): string {
-  if (!value) {
-    return "n/a";
-  }
-  return new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(new Date(value));
-}
-
-function statusTone(status: string): string {
-  switch (status) {
-    case "completed":
-      return "is-completed";
-    case "failed":
-      return "is-failed";
-    case "running":
-      return "is-running";
-    case "waiting":
-      return "is-waiting";
-    case "ready":
-      return "is-ready";
-    case "paused":
-      return "is-paused";
-    case "cancelled":
-      return "is-failed";
-    default:
-      return "is-idle";
-  }
-}
-
-function eventTone(event: string): string {
-  if (event.endsWith("failed")) {
-    return "is-failed";
-  }
-  if (event.endsWith("completed")) {
-    return "is-completed";
-  }
-  if (event.includes("paused") || event.includes("waiting") || event.includes("approve")) {
-    return "is-waiting";
-  }
-  if (event.includes("ready") || event.includes("resumed")) {
-    return "is-ready";
-  }
-  return "is-running";
-}
-
-function nodeKindLabel(kind: RunNode["kind"]): string {
-  return kind.replace("_", " ");
-}
-
-function deliveryLabel(context?: DeliveryContext | null): string {
-  if (!context?.channel) {
-    return "not wired";
-  }
-  const parts = [context.channel, context.to, context.threadId].filter(Boolean);
-  return parts.join(" / ");
-}
-
-function summarizeRun(run: RunState | undefined): {
-  total: number;
-  terminal: number;
-  running: number;
-  actionable: number;
-  progress: number;
-} {
-  if (!run) {
-    return { total: 0, terminal: 0, running: 0, actionable: 0, progress: 0 };
-  }
-  const total = run.nodes.length;
-  const terminal = run.nodes.filter((node) => ["completed", "failed", "skipped"].includes(node.status)).length;
-  const running = run.nodes.filter((node) => node.status === "running").length;
-  const actionable = run.nodes.filter((node) => ["ready", "waiting"].includes(node.status)).length;
-  return {
-    total,
-    terminal,
-    running,
-    actionable,
-    progress: total === 0 ? 0 : Math.round((terminal / total) * 100),
-  };
-}
-
-function SignalTile({
-  label,
-  value,
-  detail,
-  tone,
-  dense = false,
-}: {
-  label: string;
-  value: string | number;
-  detail: string;
-  tone: string;
-  dense?: boolean;
-}) {
-  return (
-    <article className={`signal-tile ${tone} ${dense ? "is-dense" : ""}`}>
-      <span className="signal-label">{label}</span>
-      <strong>{value}</strong>
-      <p>{detail}</p>
-    </article>
-  );
-}
-
-function LedgerRow({ label, value, subtle }: { label: string; value: string; subtle?: string }) {
-  return (
-    <div className="ledger-row">
-      <span>{label}</span>
-      <strong>{value}</strong>
-      {subtle ? <em>{subtle}</em> : null}
-    </div>
-  );
-}
-
-function stageColumnsFromRun(run: RunState | undefined): Array<{ depth: number; nodes: RunNode[] }> {
-  if (!run) {
-    return [];
-  }
-
-  const nodeMap = new Map(run.nodes.map((node) => [node.id, node]));
-  const depthCache = new Map<string, number>();
-
-  const getDepth = (node: RunNode): number => {
-    const cached = depthCache.get(node.id);
-    if (cached !== undefined) {
-      return cached;
-    }
-    const depth =
-      node.needs.length === 0
-        ? 0
-        : Math.max(...node.needs.map((dep) => (nodeMap.get(dep) ? getDepth(nodeMap.get(dep)!) : 0))) + 1;
-    depthCache.set(node.id, depth);
-    return depth;
-  };
-
-  const columns = new Map<number, RunNode[]>();
-  run.nodes.forEach((node) => {
-    const depth = getDepth(node);
-    const bucket = columns.get(depth) ?? [];
-    bucket.push(node);
-    columns.set(depth, bucket);
-  });
-
-  return Array.from(columns.entries())
-    .sort(([left], [right]) => left - right)
-    .map(([depth, columnNodes]) => ({
-      depth,
-      nodes: columnNodes
-        .slice()
-        .sort((left, right) => left.needs.length - right.needs.length || left.title.localeCompare(right.title)),
-    }));
-}
+import { RunSidebar } from "./components/RunSidebar";
+import { WorkflowGraph } from "./components/WorkflowGraph";
+import { InspectorRail } from "./components/InspectorRail";
+import { TimelineStrip } from "./components/TimelineStrip";
 
 function App() {
   const queryClient = useQueryClient();
@@ -165,8 +13,6 @@ function App() {
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [outboundMessage, setOutboundMessage] = useState("OpenTask control-plane ping.");
   const [cronPatch, setCronPatch] = useState('{\n  "enabled": true\n}');
-  const [title, setTitle] = useState("Debug OpenTask run");
-  const [taskText, setTaskText] = useState("Inspect the repo and write a short report.");
   const [actionError, setActionError] = useState<string | null>(null);
   const [isSelecting, startSelection] = useTransition();
 
@@ -209,10 +55,10 @@ function App() {
   }, [activeRunId, queryClient]);
 
   const createMutation = useMutation({
-    mutationFn: () =>
+    mutationFn: (vars: { title: string; taskText: string }) =>
       createRun({
-        title,
-        taskText,
+        title: vars.title,
+        taskText: vars.taskText,
       }),
     onSuccess: (run) => {
       queryClient.invalidateQueries({ queryKey: ["runs"] });
@@ -256,11 +102,9 @@ function App() {
       null
     );
   }, [activeRun, selectedNodeId]);
+
   const selectedNode = activeRun?.nodes.find((node) => node.id === effectiveSelectedNodeId) ?? null;
-  const stageColumns = useMemo(() => stageColumnsFromRun(activeRun), [activeRun]);
-  const activeStats = useMemo(() => summarizeRun(activeRun), [activeRun]);
   const latestEvents = useMemo(() => (eventsQuery.data ? [...eventsQuery.data].reverse() : []), [eventsQuery.data]);
-  const nodeTitleMap = useMemo(() => new Map(activeRun?.nodes.map((node) => [node.id, node.title]) ?? []), [activeRun]);
 
   function submitCronPatch() {
     try {
@@ -272,448 +116,70 @@ function App() {
   }
 
   return (
-    <div className="app-shell">
-      <header className="hero">
-        <section className="hero-copy">
-          <p className="kicker">OpenTask / editorial control room</p>
-          <h1>Registry visible. Runtime sovereign.</h1>
-          <p className="hero-text">
-            OpenClaw remains the execution engine. This surface reads the registry like a signal desk, tracks session
-            bindings, and emits precise human overrides without pretending to be the runtime.
-          </p>
-        </section>
+    <div className="app-layout">
+      {/* Sidebar: Registry Ledger */}
+      <RunSidebar
+        runs={runsQuery.data ?? []}
+        isFetching={runsQuery.isFetching}
+        isSelecting={isSelecting}
+        activeRunId={activeRunId}
+        onSelectRun={(id) => {
+          startSelection(() => {
+            setSelectedRunId(id);
+            setSelectedNodeId(null);
+          });
+        }}
+        onCreateRun={(title, taskText) => createMutation.mutate({ title, taskText })}
+        isCreating={createMutation.isPending}
+        createError={createMutation.error instanceof Error ? createMutation.error.message : null}
+      />
 
-        <section className="hero-signals">
-          <SignalTile
-            label="indexed runs"
-            value={runsQuery.data?.length ?? 0}
-            detail={runsQuery.isFetching ? "registry sync in flight" : "registry watcher steady"}
-            tone="is-accent"
-          />
-          <SignalTile
-            label="active progress"
-            value={`${activeStats.progress}%`}
-            detail={
-              activeRun
-                ? `${activeStats.terminal}/${activeStats.total} terminal · ${activeStats.running} running`
-                : "no run selected"
-            }
-            tone="is-cool"
-          />
-          <SignalTile
-            label="actionable nodes"
-            value={activeStats.actionable}
-            detail={activeRun ? `${activeRun.status} · updated ${formatTime(activeRun.updatedAt)}` : "awaiting selection"}
-            tone="is-warning"
-            dense
-          />
-          <SignalTile
-            label="delivery line"
-            value={activeRun?.deliveryContext?.channel ?? "none"}
-            detail={activeRun ? deliveryLabel(activeRun.deliveryContext) : "no outbound route bound"}
-            tone="is-ink"
-            dense
-          />
-        </section>
-      </header>
-
-      <div className="control-grid">
-        <aside className="panel-surface run-rail">
-          <div className="section-head">
+      {/* Main Stage: Node Graph Canvas & Timeline */}
+      <main className="flex-col gap-4" style={{ overflow: "hidden" }}>
+        <div className="glass-panel" style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+          {/* Subtle Stage Head */}
+          <div className="flex-row items-center justify-between" style={{ padding: "16px 20px", borderBottom: "1px solid var(--border-subtle)", background: "var(--bg-card)" }}>
             <div>
-              <p className="kicker">registry ledger</p>
-              <h2>Runs</h2>
+              <span className="kicker">Orchestration Stage</span>
+              <h1 style={{ fontSize: "1.25rem", fontWeight: "600", marginTop: "2px" }}>
+                {activeRun?.title ?? "Awaiting Control Signal"}
+              </h1>
             </div>
-            <span className="section-meta">{isSelecting ? "switching" : runsQuery.isFetching ? "syncing" : "live"}</span>
-          </div>
-
-          <div className="run-list">
-            {runsQuery.data?.length ? (
-              runsQuery.data.map((run) => {
-                const summary = summarizeRun(run);
-                return (
-                  <button
-                    key={run.runId}
-                    className={`run-entry ${activeRunId === run.runId ? "is-selected" : ""}`}
-                    onClick={() =>
-                      startSelection(() => {
-                        setSelectedRunId(run.runId);
-                        setSelectedNodeId(null);
-                      })
-                    }
-                    type="button"
-                  >
-                    <div className={`run-entry-stripe ${statusTone(run.status)}`} />
-                    <div className="run-entry-top">
-                      <strong>{run.title}</strong>
-                      <span className={`status-pill ${statusTone(run.status)}`}>{run.status}</span>
-                    </div>
-                    <p className="run-entry-id">{run.runId}</p>
-                    <div className="run-entry-body">
-                      <span>{run.workflowId}</span>
-                      <span>{run.sourceSessionKey ?? run.rootSessionKey ?? "session unbound"}</span>
-                    </div>
-                    <div className="run-entry-footer">
-                      <span>{summary.total} nodes</span>
-                      <span>{summary.progress}% resolved</span>
-                      <span>updated {formatTime(run.updatedAt)}</span>
-                    </div>
-                  </button>
-                );
-              })
-            ) : (
-              <div className="empty-block">
-                <h3>No indexed runs</h3>
-                <p>Point the API at a populated registry root or use the operator hatch to create a debug run.</p>
+            {activeRun && (
+              <div className="mono text-xs text-muted flex-row gap-4">
+                <span>{activeRun.workflowId}</span>
+                <span>source: {activeRun.sourceAgentId ?? "main"}</span>
               </div>
             )}
           </div>
-
-          <details className="operator-hatch">
-            <summary>
-              <div>
-                <p className="kicker">operator hatch</p>
-                <h3>Debug create surface</h3>
-              </div>
-              <span className="section-meta">API-only</span>
-            </summary>
-            <div className="hatch-body">
-              <label className="field">
-                <span>Title</span>
-                <input value={title} onChange={(event) => setTitle(event.target.value)} />
-              </label>
-              <label className="field">
-                <span>Task</span>
-                <textarea rows={5} value={taskText} onChange={(event) => setTaskText(event.target.value)} />
-              </label>
-              <button className="primary-btn" disabled={createMutation.isPending} onClick={() => createMutation.mutate()} type="button">
-                {createMutation.isPending ? "creating..." : "create debug run"}
-              </button>
-              {createMutation.error ? (
-                <div className="error-banner">{createMutation.error instanceof Error ? createMutation.error.message : "Create failed."}</div>
-              ) : null}
-            </div>
-          </details>
-        </aside>
-
-        <main className="panel-surface stage">
-          <div className="section-head stage-head">
-            <div>
-              <p className="kicker">orchestration stage</p>
-              <h2>{activeRun?.title ?? "Select a run"}</h2>
-              <p className="stage-copy">
-                {activeRun
-                  ? `${activeRun.workflowId} · source ${activeRun.sourceAgentId ?? "main"} · last event ${activeRun.lastEvent ?? "not recorded"}`
-                  : "Choose a registry-backed run to inspect its graph, edges, and control envelope."}
-              </p>
-            </div>
-
-            <div className="header-actions">
-              <button
-                className="secondary-btn"
-                disabled={!activeRun || actionMutation.isPending}
-                onClick={() => actionMutation.mutate({ action: activeRun?.status === "paused" ? "resume" : "pause" })}
-                type="button"
-              >
-                {activeRun?.status === "paused" ? "resume" : "pause"}
-              </button>
-              <button
-                className="secondary-btn"
-                disabled={!activeRun || actionMutation.isPending}
-                onClick={() => actionMutation.mutate({ action: "tick" })}
-                type="button"
-              >
-                force tick
-              </button>
-            </div>
+          
+          <div style={{ flex: 1, position: "relative" }}>
+            <WorkflowGraph
+              run={activeRun}
+              selectedNodeId={effectiveSelectedNodeId}
+              onNodeSelect={(id) => setSelectedNodeId(id)}
+            />
           </div>
+        </div>
 
-          {activeRun ? (
-            <div className="status-ribbon">
-              <div className="ribbon-cell">
-                <span>root session</span>
-                <strong>{activeRun.rootSessionKey ?? activeRun.driverSessionKey ?? "n/a"}</strong>
-              </div>
-              <div className="ribbon-cell">
-                <span>delivery</span>
-                <strong>{deliveryLabel(activeRun.deliveryContext)}</strong>
-              </div>
-              <div className="ribbon-cell">
-                <span>node balance</span>
-                <strong>
-                  {activeStats.running} running · {activeStats.actionable} actionable
-                </strong>
-              </div>
-              <div className="ribbon-cell">
-                <span>last progress note</span>
-                <strong>{activeRun.lastProgressMessage ?? "none sent"}</strong>
-              </div>
-            </div>
-          ) : null}
+        {/* Timeline Event Sequence Strip */}
+        <div style={{ display: "flex", flexDirection: "column" }}>
+          <TimelineStrip events={latestEvents} onSelectNode={(id) => setSelectedNodeId(id)} />
+        </div>
+      </main>
 
-          <div className="stage-canvas">
-            {activeRun ? (
-              <div className="stage-board">
-                {stageColumns.map((column, columnIndex) => (
-                  <section className="stage-lane" key={column.depth}>
-                    <header className="stage-lane-head">
-                      <span className="stage-lane-step">stage {columnIndex + 1}</span>
-                      <strong>{column.nodes.length} nodes</strong>
-                    </header>
-
-                    <div className="stage-lane-list">
-                      {column.nodes.map((node, nodeIndex) => (
-                        <button
-                          key={node.id}
-                          className={`stage-node-card ${statusTone(node.status)} ${
-                            effectiveSelectedNodeId === node.id ? "is-selected" : ""
-                          }`}
-                          onClick={() => setSelectedNodeId(node.id)}
-                          type="button"
-                        >
-                          <div className="stage-node-top">
-                            <span className="stage-node-index">
-                              {String(columnIndex + 1).padStart(2, "0")}.{String(nodeIndex + 1).padStart(2, "0")}
-                            </span>
-                            <span className={`status-pill ${statusTone(node.status)}`}>{node.status}</span>
-                          </div>
-
-                          <strong>{node.title}</strong>
-
-                          <div className="stage-node-meta">
-                            <span>{nodeKindLabel(node.kind)}</span>
-                            <span>{node.outputsMode}</span>
-                            <span>{node.artifactPaths.length} artifacts</span>
-                          </div>
-
-                          <div className="stage-node-deps">
-                            <span className="stage-node-label">depends on</span>
-                            <div className="dependency-list">
-                              {node.needs.length ? (
-                                node.needs.map((dependency) => (
-                                  <span className="dependency-chip" key={dependency}>
-                                    {nodeTitleMap.get(dependency) ?? dependency}
-                                  </span>
-                                ))
-                              ) : (
-                                <span className="dependency-chip is-entry">entry</span>
-                              )}
-                            </div>
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  </section>
-                ))}
-              </div>
-            ) : (
-              <div className="empty-block stage-empty">
-                <h3>No graph mounted</h3>
-                <p>The control plane stays read-mostly: pick a run on the left and the workflow map will render here.</p>
-              </div>
-            )}
-          </div>
-
-          <section className="timeline-strip">
-            <div className="section-head compact">
-              <div>
-                <p className="kicker">audit trail</p>
-                <h3>Event sequence</h3>
-              </div>
-              <span className="section-meta">{latestEvents.length} events</span>
-            </div>
-
-            <div className="timeline-list">
-              {latestEvents.length ? (
-                latestEvents.map((event: RunEvent) => (
-                  <button
-                    key={`${event.timestamp}-${event.event}-${event.nodeId ?? "run"}`}
-                    className={`timeline-entry ${event.nodeId ? "is-clickable" : ""}`}
-                    onClick={() => {
-                      if (event.nodeId) {
-                        setSelectedNodeId(event.nodeId);
-                      }
-                    }}
-                    type="button"
-                  >
-                    <div className={`timeline-pulse ${eventTone(event.event)}`} />
-                    <div className="timeline-copy">
-                      <div className="timeline-top">
-                        <strong>{event.event}</strong>
-                        <span>{formatTime(event.timestamp)}</span>
-                      </div>
-                      <p>{event.message ?? "No message recorded."}</p>
-                      <div className="timeline-meta">
-                        <span>{event.nodeId ?? "run-wide"}</span>
-                        <span>{Object.keys(event.payload ?? {}).length} payload keys</span>
-                      </div>
-                    </div>
-                  </button>
-                ))
-              ) : (
-                <div className="empty-block compact-empty">
-                  <p>No events indexed for the selected run yet.</p>
-                </div>
-              )}
-            </div>
-          </section>
-        </main>
-
-        <aside className="panel-surface ops-rail">
-          <section className="ops-section">
-            <div className="section-head compact">
-              <div>
-                <p className="kicker">session ledger</p>
-                <h2>{selectedNode?.title ?? activeRun?.runId ?? "No run"}</h2>
-              </div>
-              {activeRun ? <span className={`status-pill ${statusTone(activeRun.status)}`}>{activeRun.status}</span> : null}
-            </div>
-
-            {activeRun ? (
-              <div className="ledger-grid">
-                <LedgerRow label="source session" value={activeRun.sourceSessionKey ?? "not bound"} />
-                <LedgerRow label="root session" value={activeRun.rootSessionKey ?? activeRun.driverSessionKey ?? "n/a"} />
-                <LedgerRow label="planner / driver" value={activeRun.plannerSessionKey ?? activeRun.driverSessionKey ?? "not persisted"} />
-                <LedgerRow label="delivery context" value={deliveryLabel(activeRun.deliveryContext)} />
-                <LedgerRow label="cron job" value={activeRun.cronJobId ?? "not scheduled"} />
-                <LedgerRow label="last progress update" value={activeRun.lastProgressMessage ?? "none sent"} subtle={formatTime(activeRun.lastProgressMessageAt)} />
-              </div>
-            ) : (
-              <div className="empty-block compact-empty">
-                <p>Session routing, delivery, and cron bindings appear here once a run is selected.</p>
-              </div>
-            )}
-          </section>
-
-          <section className="ops-section composer-stack">
-            <article className="composer-card">
-              <div className="section-head compact">
-                <div>
-                  <p className="kicker">human override</p>
-                  <h3>Send explicit update</h3>
-                </div>
-              </div>
-              <textarea rows={4} value={outboundMessage} onChange={(event) => setOutboundMessage(event.target.value)} />
-              <button
-                className="primary-btn"
-                disabled={actionMutation.isPending || !activeRun?.deliveryContext?.to}
-                onClick={() => actionMutation.mutate({ action: "send_message", message: outboundMessage })}
-                type="button"
-              >
-                send message
-              </button>
-            </article>
-
-            <article className="composer-card">
-              <div className="section-head compact">
-                <div>
-                  <p className="kicker">scheduler override</p>
-                  <h3>Patch cron</h3>
-                </div>
-              </div>
-              <textarea rows={6} value={cronPatch} onChange={(event) => setCronPatch(event.target.value)} />
-              <button className="secondary-btn" disabled={actionMutation.isPending} onClick={submitCronPatch} type="button">
-                apply patch
-              </button>
-            </article>
-          </section>
-
-          <section className="ops-section">
-            <div className="section-head compact">
-              <div>
-                <p className="kicker">node inspector</p>
-                <h3>{selectedNode?.id ?? "No node selected"}</h3>
-              </div>
-              {selectedNode ? <span className={`status-pill ${statusTone(selectedNode.status)}`}>{selectedNode.status}</span> : null}
-            </div>
-
-            {selectedNode ? (
-              <div className="inspector-stack">
-                <div className="badge-row">
-                  <span className="inspector-badge">{nodeKindLabel(selectedNode.kind)}</span>
-                  <span className="inspector-badge">{selectedNode.outputsMode}</span>
-                  <span className="inspector-badge">{selectedNode.needs.length ? `${selectedNode.needs.length} deps` : "entry"}</span>
-                </div>
-
-                <div className="inspector-grid">
-                  <LedgerRow label="dependencies" value={selectedNode.needs.length ? selectedNode.needs.join(", ") : "entry"} />
-                  <LedgerRow label="session binding" value={selectedNode.childSessionKey ?? selectedNode.sessionKey ?? "pending"} />
-                  <LedgerRow label="started" value={formatTime(selectedNode.startedAt)} />
-                  <LedgerRow label="completed" value={formatTime(selectedNode.completedAt)} />
-                </div>
-
-                <div className="inspector-card">
-                  <span>artifact paths</span>
-                  <ul className="path-list">
-                    {selectedNode.artifactPaths.length ? (
-                      selectedNode.artifactPaths.map((artifact) => <li key={artifact}>{artifact}</li>)
-                    ) : (
-                      <li>none declared</li>
-                    )}
-                  </ul>
-                </div>
-
-                <div className="inspector-card">
-                  <span>working memory</span>
-                  <ul className="path-list">
-                    {selectedNode.workingMemory ? (
-                      Object.entries(selectedNode.workingMemory)
-                        .filter(([, value]) => Boolean(value))
-                        .map(([label, value]) => <li key={label}>{`${label}: ${value}`}</li>)
-                    ) : (
-                      <li>not configured</li>
-                    )}
-                  </ul>
-                </div>
-
-                <div className="header-actions">
-                  <button
-                    className="secondary-btn"
-                    disabled={actionMutation.isPending}
-                    onClick={() => actionMutation.mutate({ action: "retry", nodeId: selectedNode.id })}
-                    type="button"
-                  >
-                    retry node
-                  </button>
-                  <button
-                    className="secondary-btn"
-                    disabled={actionMutation.isPending}
-                    onClick={() => actionMutation.mutate({ action: "skip", nodeId: selectedNode.id })}
-                    type="button"
-                  >
-                    skip node
-                  </button>
-                  {selectedNode.kind === "approval" ? (
-                    <button
-                      className="primary-btn"
-                      disabled={actionMutation.isPending}
-                      onClick={() => actionMutation.mutate({ action: "approve", nodeId: selectedNode.id })}
-                      type="button"
-                    >
-                      approve gate
-                    </button>
-                  ) : null}
-                </div>
-
-                <div className="inspector-card">
-                  <span>operator notes</span>
-                  <div className="note-list">
-                    {(selectedNode.notes.length ? selectedNode.notes : ["No node notes recorded."]).map((note) => (
-                      <p key={note}>{note}</p>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <div className="empty-block compact-empty">
-                <p>Pick a node from the graph or the timeline to inspect bindings, artifacts, and direct actions.</p>
-              </div>
-            )}
-          </section>
-
-          {actionError ? <div className="error-banner">{actionError}</div> : null}
-        </aside>
-      </div>
+      {/* Right Rail: Session Inspector & Overrides */}
+      <InspectorRail
+        activeRun={activeRun}
+        selectedNode={selectedNode}
+        actionMutation={actionMutation}
+        outboundMessage={outboundMessage}
+        setOutboundMessage={setOutboundMessage}
+        cronPatch={cronPatch}
+        setCronPatch={setCronPatch}
+        submitCronPatch={submitCronPatch}
+        actionError={actionError}
+      />
     </div>
   );
 }
