@@ -1,14 +1,3 @@
-import {
-  Background,
-  BackgroundVariant,
-  Controls,
-  MiniMap,
-  type Edge,
-  MarkerType,
-  type Node,
-  Position,
-  ReactFlow,
-} from "@xyflow/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState, useTransition } from "react";
 
@@ -99,27 +88,6 @@ function summarizeRun(run: RunState | undefined): {
   };
 }
 
-function FlowNodeLabel({ node, index }: { node: RunNode; index: number }) {
-  return (
-    <div className={`flow-node ${statusTone(node.status)}`}>
-      <div className="flow-node-stripe" />
-      <div className="flow-node-index">{String(index + 1).padStart(2, "0")}</div>
-      <div className="flow-node-body">
-        <div className="flow-node-head">
-          <span className="flow-node-kind">{nodeKindLabel(node.kind)}</span>
-          <span className={`status-pill ${statusTone(node.status)}`}>{node.status}</span>
-        </div>
-        <strong>{node.title}</strong>
-        <p>{node.needs.length === 0 ? "entry signal" : `${node.needs.length} prerequisite ${node.needs.length === 1 ? "edge" : "edges"}`}</p>
-        <div className="flow-node-meta">
-          <span>{node.outputsMode}</span>
-          <span>{node.artifactPaths.length} artifact paths</span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function SignalTile({
   label,
   value,
@@ -152,9 +120,9 @@ function LedgerRow({ label, value, subtle }: { label: string; value: string; sub
   );
 }
 
-function graphFromRun(run: RunState | undefined): { nodes: Node[]; edges: Edge[] } {
+function stageColumnsFromRun(run: RunState | undefined): Array<{ depth: number; nodes: RunNode[] }> {
   if (!run) {
-    return { nodes: [], edges: [] };
+    return [];
   }
 
   const nodeMap = new Map(run.nodes.map((node) => [node.id, node]));
@@ -181,48 +149,14 @@ function graphFromRun(run: RunState | undefined): { nodes: Node[]; edges: Edge[]
     columns.set(depth, bucket);
   });
 
-  const flowNodes: Node[] = [];
-  const flowEdges: Edge[] = [];
-  let visualIndex = 0;
-
-  Array.from(columns.entries())
+  return Array.from(columns.entries())
     .sort(([left], [right]) => left - right)
-    .forEach(([depth, columnNodes]) => {
-      columnNodes
+    .map(([depth, columnNodes]) => ({
+      depth,
+      nodes: columnNodes
         .slice()
-        .sort((left, right) => left.needs.length - right.needs.length || left.title.localeCompare(right.title))
-        .forEach((node, index) => {
-          flowNodes.push({
-            id: node.id,
-            position: { x: 90 + depth * 360, y: 72 + index * 208 + (depth % 2 === 0 ? 0 : 34) },
-            sourcePosition: Position.Right,
-            targetPosition: Position.Left,
-            draggable: false,
-            selectable: true,
-            data: {
-              label: <FlowNodeLabel node={node} index={visualIndex} />,
-            },
-          });
-          visualIndex += 1;
-        });
-    });
-
-  run.nodes.forEach((node) => {
-    node.needs.forEach((dependency) => {
-      flowEdges.push({
-        id: `${dependency}-${node.id}`,
-        source: dependency,
-        target: node.id,
-        animated: node.status === "running",
-        markerEnd: { type: MarkerType.ArrowClosed },
-        style: {
-          strokeWidth: 1.6,
-        },
-      });
-    });
-  });
-
-  return { nodes: flowNodes, edges: flowEdges };
+        .sort((left, right) => left.needs.length - right.needs.length || left.title.localeCompare(right.title)),
+    }));
 }
 
 function App() {
@@ -323,9 +257,10 @@ function App() {
     );
   }, [activeRun, selectedNodeId]);
   const selectedNode = activeRun?.nodes.find((node) => node.id === effectiveSelectedNodeId) ?? null;
-  const graph = useMemo(() => graphFromRun(activeRun), [activeRun]);
+  const stageColumns = useMemo(() => stageColumnsFromRun(activeRun), [activeRun]);
   const activeStats = useMemo(() => summarizeRun(activeRun), [activeRun]);
   const latestEvents = useMemo(() => (eventsQuery.data ? [...eventsQuery.data].reverse() : []), [eventsQuery.data]);
+  const nodeTitleMap = useMemo(() => new Map(activeRun?.nodes.map((node) => [node.id, node.title]) ?? []), [activeRun]);
 
   function submitCronPatch() {
     try {
@@ -338,9 +273,6 @@ function App() {
 
   return (
     <div className="app-shell">
-      <div className="glow glow-left" />
-      <div className="glow glow-right" />
-
       <header className="hero">
         <section className="hero-copy">
           <p className="kicker">OpenTask / editorial control room</p>
@@ -521,26 +453,63 @@ function App() {
 
           <div className="stage-canvas">
             {activeRun ? (
-              <ReactFlow
-                nodes={graph.nodes}
-                edges={graph.edges}
-                fitView
-                fitViewOptions={{ padding: 0.18 }}
-                onNodeClick={(_, node) => setSelectedNodeId(node.id)}
-                onPaneClick={() => setSelectedNodeId(null)}
-                nodesDraggable={false}
-                nodesConnectable={false}
-                elementsSelectable
-                proOptions={{ hideAttribution: true }}
-              >
-                <Background variant={BackgroundVariant.Lines} gap={48} size={0.8} />
-                <Controls showInteractive={false} />
-                <MiniMap pannable zoomable />
-              </ReactFlow>
+              <div className="stage-board">
+                {stageColumns.map((column, columnIndex) => (
+                  <section className="stage-lane" key={column.depth}>
+                    <header className="stage-lane-head">
+                      <span className="stage-lane-step">stage {columnIndex + 1}</span>
+                      <strong>{column.nodes.length} nodes</strong>
+                    </header>
+
+                    <div className="stage-lane-list">
+                      {column.nodes.map((node, nodeIndex) => (
+                        <button
+                          key={node.id}
+                          className={`stage-node-card ${statusTone(node.status)} ${
+                            effectiveSelectedNodeId === node.id ? "is-selected" : ""
+                          }`}
+                          onClick={() => setSelectedNodeId(node.id)}
+                          type="button"
+                        >
+                          <div className="stage-node-top">
+                            <span className="stage-node-index">
+                              {String(columnIndex + 1).padStart(2, "0")}.{String(nodeIndex + 1).padStart(2, "0")}
+                            </span>
+                            <span className={`status-pill ${statusTone(node.status)}`}>{node.status}</span>
+                          </div>
+
+                          <strong>{node.title}</strong>
+
+                          <div className="stage-node-meta">
+                            <span>{nodeKindLabel(node.kind)}</span>
+                            <span>{node.outputsMode}</span>
+                            <span>{node.artifactPaths.length} artifacts</span>
+                          </div>
+
+                          <div className="stage-node-deps">
+                            <span className="stage-node-label">depends on</span>
+                            <div className="dependency-list">
+                              {node.needs.length ? (
+                                node.needs.map((dependency) => (
+                                  <span className="dependency-chip" key={dependency}>
+                                    {nodeTitleMap.get(dependency) ?? dependency}
+                                  </span>
+                                ))
+                              ) : (
+                                <span className="dependency-chip is-entry">entry</span>
+                              )}
+                            </div>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </section>
+                ))}
+              </div>
             ) : (
               <div className="empty-block stage-empty">
                 <h3>No graph mounted</h3>
-                <p>The control plane stays read-mostly: pick a run on the left and the workflow will render here.</p>
+                <p>The control plane stays read-mostly: pick a run on the left and the workflow map will render here.</p>
               </div>
             )}
           </div>

@@ -1,31 +1,30 @@
 @import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Public+Sans:wght@400;500;600;700;800&display=swap");
-@import url("@xyflow/react/dist/style.css");
 
 :root {
   color-scheme: light;
-  --paper: #f7efe3;
-  --paper-deep: #e8dbc8;
-  --ink: #0f1714;
-  --ink-soft: #54584f;
-  --ink-ghost: rgba(15, 23, 20, 0.52);
-  --panel: rgba(12, 18, 16, 0.94);
-  --panel-secondary: rgba(19, 27, 24, 0.94);
-  --panel-line: rgba(247, 239, 227, 0.12);
-  --accent: #ef5d38;
-  --accent-soft: rgba(239, 93, 56, 0.2);
-  --cool: #4ca7a6;
-  --cool-soft: rgba(76, 167, 166, 0.18);
-  --warning: #d7a84b;
-  --warning-soft: rgba(215, 168, 75, 0.18);
-  --success: #66b37f;
-  --success-soft: rgba(102, 179, 127, 0.18);
+  --paper: #f3f5f8;
+  --paper-deep: #e7ebf0;
+  --ink: #16202b;
+  --ink-soft: #55606d;
+  --ink-ghost: rgba(22, 32, 43, 0.5);
+  --panel: #131a22;
+  --panel-secondary: #1b2430;
+  --panel-line: rgba(255, 255, 255, 0.08);
+  --accent: #ff6a3d;
+  --accent-soft: rgba(255, 106, 61, 0.16);
+  --cool: #2e90a8;
+  --cool-soft: rgba(46, 144, 168, 0.16);
+  --warning: #b6882c;
+  --warning-soft: rgba(182, 136, 44, 0.16);
+  --success: #2e8b57;
+  --success-soft: rgba(46, 139, 87, 0.16);
   --danger: #bf4637;
-  --danger-soft: rgba(191, 70, 55, 0.2);
-  --idle: rgba(247, 239, 227, 0.16);
-  --shadow-heavy: 0 36px 110px rgba(12, 16, 14, 0.22);
-  --shadow-soft: 0 20px 44px rgba(11, 17, 14, 0.12);
-  --radius-panel: 30px;
-  --radius-card: 24px;
+  --danger-soft: rgba(191, 70, 55, 0.16);
+  --idle: rgba(255, 255, 255, 0.08);
+  --shadow-heavy: 0 20px 40px rgba(10, 18, 26, 0.12);
+  --shadow-soft: 0 10px 24px rgba(10, 18, 26, 0.1);
+  --radius-panel: 22px;
+  --radius-card: 18px;
   font-family: "Public Sans", "Segoe UI", sans-serif;
 }
 
@@ -34,10 +33,7 @@
 }
 
 html {
-  background:
-    radial-gradient(circle at 18% 12%, rgba(239, 93, 56, 0.18), transparent 20%),
-    radial-gradient(circle at 82% 18%, rgba(76, 167, 166, 0.16), transparent 18%),
-    linear-gradient(140deg, #faf4ec 0%, var(--paper) 42%, var(--paper-deep) 100%);
+  background: linear-gradient(180deg, var(--paper) 0%, var(--paper-deep) 100%);
 }
 
 body {
@@ -73,52 +69,7 @@ button {
 .app-shell {
   position: relative;
   min-height: 100vh;
-  padding: 26px;
-  overflow: hidden;
-}
-
-.app-shell::before {
-  content: "";
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  background:
-    repeating-linear-gradient(90deg, rgba(15, 23, 20, 0.04) 0 1px, transparent 1px 78px),
-    repeating-linear-gradient(0deg, rgba(15, 23, 20, 0.028) 0 1px, transparent 1px 78px);
-  mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.48), transparent 84%);
-}
-
-.app-shell::after {
-  content: "";
-  position: fixed;
-  inset: 18px;
-  pointer-events: none;
-  border: 1px solid rgba(15, 23, 20, 0.08);
-  border-radius: 36px;
-}
-
-.glow {
-  position: absolute;
-  border-radius: 999px;
-  filter: blur(70px);
-  opacity: 0.45;
-  pointer-events: none;
-}
-
-.glow-left {
-  width: 28vw;
-  height: 28vw;
-  left: -8vw;
-  top: 10vh;
-  background: rgba(239, 93, 56, 0.22);
-}
-
-.glow-right {
-  width: 30vw;
-  height: 30vw;
-  right: -9vw;
-  bottom: 8vh;
-  background: rgba(76, 167, 166, 0.22);
+  padding: 18px;
 }
 
 .hero {
@@ -133,30 +84,15 @@ button {
 .hero-copy,
 .panel-surface {
   position: relative;
-  overflow: hidden;
   border-radius: var(--radius-panel);
   border: 1px solid var(--panel-line);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent),
-    linear-gradient(180deg, var(--panel) 0%, var(--panel-secondary) 100%);
+  background: linear-gradient(180deg, var(--panel) 0%, var(--panel-secondary) 100%);
   color: #f9f3e8;
   box-shadow: var(--shadow-heavy);
-  backdrop-filter: blur(18px);
 }
 
 .hero-copy {
   padding: 30px 32px 34px;
-}
-
-.hero-copy::after,
-.panel-surface::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background:
-    linear-gradient(115deg, rgba(255, 255, 255, 0.05), transparent 28%),
-    linear-gradient(180deg, transparent 62%, rgba(255, 255, 255, 0.02));
-  pointer-events: none;
 }
 
 .hero h1,
@@ -227,11 +163,7 @@ button {
   padding: 22px 22px 20px;
   border-radius: var(--radius-card);
   border: 1px solid rgba(249, 243, 232, 0.1);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.05), transparent 60%),
-    rgba(249, 243, 232, 0.035);
-  overflow: hidden;
-  animation: drift-in 500ms ease both;
+  background: rgba(249, 243, 232, 0.035);
 }
 
 .signal-tile.is-dense {
@@ -267,23 +199,17 @@ button {
 
 .signal-tile.is-accent {
   color: #ffd8cf;
-  background:
-    linear-gradient(180deg, rgba(239, 93, 56, 0.24), rgba(239, 93, 56, 0.08)),
-    rgba(249, 243, 232, 0.04);
+  background: rgba(239, 93, 56, 0.16);
 }
 
 .signal-tile.is-cool {
   color: #dffbf7;
-  background:
-    linear-gradient(180deg, rgba(76, 167, 166, 0.22), rgba(76, 167, 166, 0.08)),
-    rgba(249, 243, 232, 0.04);
+  background: rgba(76, 167, 166, 0.16);
 }
 
 .signal-tile.is-warning {
   color: #ffefc6;
-  background:
-    linear-gradient(180deg, rgba(215, 168, 75, 0.22), rgba(215, 168, 75, 0.08)),
-    rgba(249, 243, 232, 0.04);
+  background: rgba(215, 168, 75, 0.16);
 }
 
 .signal-tile.is-ink {
@@ -582,116 +508,143 @@ button {
 }
 
 .stage-canvas {
-  position: relative;
   min-height: 440px;
   margin: 0 18px;
   border: 1px solid rgba(249, 243, 232, 0.08);
-  border-radius: 28px;
-  overflow: hidden;
-  background:
-    radial-gradient(circle at top, rgba(255, 255, 255, 0.06), transparent 28%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.01), transparent 38%),
-    linear-gradient(180deg, rgba(3, 6, 5, 0.78), rgba(7, 11, 10, 0.92));
+  border-radius: 22px;
+  overflow: auto;
+  background: #0f151c;
 }
 
-.react-flow {
-  background:
-    radial-gradient(circle at 20% 12%, rgba(239, 93, 56, 0.08), transparent 18%),
-    radial-gradient(circle at 78% 18%, rgba(76, 167, 166, 0.08), transparent 16%),
-    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.02) 0 1px, transparent 1px 120px);
-}
-
-.react-flow__background path {
-  stroke: rgba(247, 239, 227, 0.06);
-}
-
-.react-flow__edge path {
-  stroke: rgba(239, 93, 56, 0.48);
-}
-
-.react-flow__controls,
-.react-flow__minimap {
-  border-radius: 20px;
-  overflow: hidden;
-  border: 1px solid rgba(249, 243, 232, 0.08);
-  background: rgba(10, 14, 12, 0.8);
-  box-shadow: none;
-}
-
-.react-flow__controls-button {
-  background: transparent;
-  border-bottom: 1px solid rgba(249, 243, 232, 0.08);
-  color: #fff6e7;
-}
-
-.react-flow__controls-button:last-child {
-  border-bottom: none;
-}
-
-.flow-node {
+.stage-board {
   display: grid;
-  grid-template-columns: auto auto minmax(0, 1fr);
-  gap: 14px;
-  min-width: 260px;
-  max-width: 300px;
-  padding: 18px 18px 16px 14px;
-  border-radius: 24px;
-  border: 1px solid rgba(249, 243, 232, 0.08);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent),
-    rgba(8, 12, 10, 0.92);
-  color: #fff4e4;
-  box-shadow: var(--shadow-soft);
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(260px, 320px);
+  gap: 16px;
+  min-height: 100%;
+  padding: 18px;
+  align-items: start;
 }
 
-.flow-node-index {
-  align-self: start;
-  color: rgba(249, 243, 232, 0.54);
-  font-family: "IBM Plex Mono", monospace;
-  font-size: 0.72rem;
-  letter-spacing: 0.1em;
-  writing-mode: vertical-rl;
-  text-orientation: mixed;
+.stage-lane {
+  display: grid;
+  gap: 12px;
+  align-content: start;
 }
 
-.flow-node-stripe {
-  width: 3px;
-  border-radius: 999px;
-  background: currentColor;
-  opacity: 0.8;
-}
-
-.flow-node strong {
-  display: block;
-  margin-top: 10px;
-  font-size: 1.02rem;
-  line-height: 1.2;
-  text-wrap: balance;
-}
-
-.flow-node p {
-  margin: 10px 0 0;
-  color: rgba(249, 243, 232, 0.74);
-  line-height: 1.42;
-}
-
-.flow-node-meta {
+.stage-lane-head {
   display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin-top: 12px;
-  color: rgba(249, 243, 232, 0.56);
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 4px;
+}
+
+.stage-lane-step,
+.stage-node-index,
+.stage-node-label,
+.dependency-chip {
   font-family: "IBM Plex Mono", monospace;
-  font-size: 0.68rem;
   text-transform: uppercase;
+}
+
+.stage-lane-step {
+  color: rgba(249, 243, 232, 0.58);
+  font-size: 0.68rem;
   letter-spacing: 0.08em;
 }
 
-.flow-node-kind {
-  color: rgba(249, 243, 232, 0.56);
+.stage-lane-head strong {
+  font-size: 0.9rem;
+  color: rgba(249, 243, 232, 0.9);
+}
+
+.stage-lane-list {
+  display: grid;
+  gap: 12px;
+}
+
+.stage-node-card {
+  display: grid;
+  gap: 12px;
+  width: 100%;
+  padding: 16px;
+  text-align: left;
+  border-radius: 18px;
+  border: 1px solid rgba(249, 243, 232, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+  color: #fff4e4;
+  cursor: pointer;
+  transition: border-color 160ms ease, transform 160ms ease, background 160ms ease;
+}
+
+.stage-node-card:hover {
+  transform: translateY(-1px);
+  border-color: rgba(249, 243, 232, 0.2);
+}
+
+.stage-node-card.is-selected {
+  border-color: rgba(255, 106, 61, 0.75);
+  background: rgba(255, 106, 61, 0.08);
+}
+
+.stage-node-top,
+.stage-node-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: space-between;
+}
+
+.stage-node-index {
+  color: rgba(249, 243, 232, 0.58);
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+}
+
+.stage-node-card strong {
+  font-size: 1rem;
+  line-height: 1.3;
+}
+
+.stage-node-meta {
+  justify-content: flex-start;
+  color: rgba(249, 243, 232, 0.7);
+  font-size: 0.76rem;
+}
+
+.stage-node-deps {
+  display: grid;
+  gap: 8px;
+}
+
+.stage-node-label {
+  color: rgba(249, 243, 232, 0.52);
   font-size: 0.66rem;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.08em;
+}
+
+.dependency-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.dependency-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(249, 243, 232, 0.82);
+  font-size: 0.66rem;
+  letter-spacing: 0.04em;
+}
+
+.dependency-chip.is-entry {
+  background: rgba(46, 144, 168, 0.18);
 }
 
 .timeline-strip {
@@ -926,26 +879,21 @@ button {
   background-color: var(--idle);
 }
 
-.flow-node.is-completed .flow-node-stripe,
 .timeline-pulse.is-completed,
 .run-entry-stripe.is-completed {
   background: var(--success);
 }
 
-.flow-node.is-failed .flow-node-stripe,
 .timeline-pulse.is-failed,
 .run-entry-stripe.is-failed {
   background: var(--danger);
 }
 
-.flow-node.is-running .flow-node-stripe,
 .timeline-pulse.is-running,
 .run-entry-stripe.is-running {
   background: var(--cool);
 }
 
-.flow-node.is-waiting .flow-node-stripe,
-.flow-node.is-paused .flow-node-stripe,
 .timeline-pulse.is-waiting,
 .timeline-pulse.is-paused,
 .run-entry-stripe.is-waiting,
@@ -953,52 +901,14 @@ button {
   background: var(--warning);
 }
 
-.flow-node.is-ready .flow-node-stripe,
 .timeline-pulse.is-ready,
 .run-entry-stripe.is-ready {
   background: var(--accent);
 }
 
-.flow-node.is-idle .flow-node-stripe,
 .timeline-pulse.is-idle,
 .run-entry-stripe.is-idle {
   background: rgba(249, 243, 232, 0.58);
-}
-
-.signal-tile,
-.panel-surface,
-.run-entry,
-.timeline-entry {
-  animation: drift-in 480ms ease both;
-}
-
-.hero-signals .signal-tile:nth-child(2),
-.run-list .run-entry:nth-child(2),
-.timeline-list .timeline-entry:nth-child(2) {
-  animation-delay: 60ms;
-}
-
-.hero-signals .signal-tile:nth-child(3),
-.run-list .run-entry:nth-child(3),
-.timeline-list .timeline-entry:nth-child(3) {
-  animation-delay: 110ms;
-}
-
-.hero-signals .signal-tile:nth-child(4),
-.run-list .run-entry:nth-child(4),
-.timeline-list .timeline-entry:nth-child(4) {
-  animation-delay: 160ms;
-}
-
-@keyframes drift-in {
-  from {
-    opacity: 0;
-    transform: translateY(14px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
 }
 
 @media (max-width: 1460px) {
