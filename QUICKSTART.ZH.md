@@ -60,6 +60,7 @@ uv run opentask workflow validate workflows/research-demo.task.md
 ```
 
 在实现层，这个 skill 会先把 references 全部读完，解析当前 `sessionKey`、`agentId`、`deliveryContext` 和 registry root，先把 run scaffold 完整，再启动 cron 或派发执行。`workflows/` 下的源 workflow 必须保持可复用，不能塞进 run-local 元数据。CLI 主要给 operator、测试和 UI 集成使用，不是面向最终用户的主入口。
+对 OpenClaw 原生路径来说，源 workflow 和节点本地产物可以直接编辑，但 `runs/<runId>/` 及其顶层 runtime 文件应通过 `python3 skills/opentask/scripts/registry_helper.py ...` 来创建和更新。
 
 ## 6. 查看 Registry
 
@@ -104,6 +105,7 @@ ls runs/<runId>
 
 - 通过 `control.jsonl` 追加或解释控制意图
 - 在需要时更新 workflow 或 run 文件
+- 在 runtime registry 变更时使用 `python3 skills/opentask/scripts/registry_helper.py bind|transition-node|progress|validate`
 - 通过 OpenClaw 工具修改 cron
 - 保持内部 tick 对用户不可见
 - 只在合适的时候发送显式的用户可见消息

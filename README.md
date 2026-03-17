@@ -25,8 +25,9 @@ For real runs, that registry root should be the stable OpenClaw workspace or the
 ## What It Ships
 
 - A registry contract for workflows, runs, refs, events, controls, node-local working memory, and node outputs
-- A Python core library and `opentask` CLI for deterministic state changes
 - A shared OpenClaw skill at [skills/opentask/SKILL.md](skills/opentask/SKILL.md)
+- A skill-side runtime helper at `skills/opentask/scripts/registry_helper.py` for deterministic OpenClaw-native registry mutations
+- A Python core library and `opentask` CLI for operator-side deterministic state changes
 - A FastAPI backend that indexes the registry and exposes control APIs
 - A React control plane for DAG visualization and explicit operator actions
 
@@ -84,6 +85,11 @@ Key files:
 - `nodes/<nodeId>/plan.md`, `findings.md`, `progress.md`: canonical node-local working memory
 - `nodes/<nodeId>/handoff.md`: canonical parent-to-child brief for subagent nodes
 
+OpenClaw-native rule:
+
+- the agent may edit `workflows/*.task.md`, `workflow.lock.md`, and node-local artifacts directly
+- the agent should create `runs/<runId>/` and mutate `workflow.lock.md`, `state.json`, `refs.json`, `events.jsonl`, and `control.jsonl` through `python3 skills/opentask/scripts/registry_helper.py ...`, not by hand
+
 ## Installation
 
 Prerequisites:
@@ -130,10 +136,10 @@ The primary path is OpenClaw-native:
 2. The OpenClaw agent uses [skills/opentask/SKILL.md](skills/opentask/SKILL.md).
 3. The agent resolves the current `sessionKey`, `deliveryContext`, and registry root.
 4. The agent creates or validates a reusable workflow file under `workflows/`. That source workflow should stay reusable and must not contain run-local metadata like concrete registry paths, `runId`, or transient status notes.
-5. The agent creates or binds a run for that session using the registry protocol, finishes scaffolding canonical node memory and lifecycle records, and only then begins execution. It may optionally use the `opentask` CLI or core library when deterministic helper commands are useful.
+5. The agent runs `python3 skills/opentask/scripts/registry_helper.py scaffold ...` directly from the reusable workflow frontmatter, validates the run, and only then begins execution. An explicit bootstrap spec is optional and only needed for override cases.
 6. OpenClaw cron and subagents continue execution from there.
 
-Manual equivalent:
+Operator-side equivalent:
 
 ```bash
 uv run opentask run create \

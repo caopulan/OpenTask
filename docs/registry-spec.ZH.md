@@ -3,6 +3,7 @@
 [English Version](./registry-spec.md)
 
 OpenTask 使用一个 registry 目录作为唯一真源。OpenClaw 的 skill、`opentask` CLI、OpenTask 后端以及网页前端都围绕这套目录读写。
+对 OpenClaw 原生 skill 执行来说，`runs/<runId>/` 目录以及顶层 runtime 文件 `workflow.lock.md`、`state.json`、`refs.json`、`events.jsonl`、`control.jsonl` 应通过 `python3 skills/opentask/scripts/registry_helper.py ...` 来创建和修改；源 workflow 和节点本地产物仍可直接编辑。
 
 对真实 OpenClaw run 来说，这个 registry root 应该是稳定共享的工作目录，比如配置好的 `OPENTASK_REGISTRY_ROOT` 或当前 agent 的 workspace 根目录。临时 sandbox root 只适用于显式 skill 验证。
 在运行时 prompt 和 subagent handoff 里，`Workspace root` 也应该指向这个 registry root，这样相对的 `workflows/...`、`runs/...` 路径才能稳定解析。

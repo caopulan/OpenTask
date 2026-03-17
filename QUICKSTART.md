@@ -60,6 +60,7 @@ Use the opentask skill for this conversation. Resolve the registry root and curr
 ```
 
 Under the hood, the skill should read all of its references first, resolve the current `sessionKey`, `agentId`, `deliveryContext`, and registry root, scaffold the run completely, and only then start cron or dispatch execution. The versioned source workflow under `workflows/` should remain reusable rather than carrying run-local metadata. The CLI exists for operators and tests, not as the primary user-facing path.
+For the OpenClaw-native path, source workflow files and node-local artifacts may be edited directly, but `runs/<runId>/` and its top-level runtime files should be created and updated through `python3 skills/opentask/scripts/registry_helper.py ...`.
 
 ## 6. Inspect the Registry
 
@@ -104,6 +105,7 @@ The skill should translate those requests into native OpenClaw actions:
 
 - append or interpret control intent through `control.jsonl`
 - update workflow or run files when needed
+- use `python3 skills/opentask/scripts/registry_helper.py bind|transition-node|progress|validate` for runtime registry mutations
 - patch cron through OpenClaw tools
 - keep internal tick delivery non-user-visible
 - send explicit user-visible messages only when appropriate

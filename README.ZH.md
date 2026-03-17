@@ -25,8 +25,9 @@ OpenTask 围绕一个简单分工构建：
 ## 提供的能力
 
 - 一套 workflow、run、refs、event、control、节点级 working memory 和 node output 的 registry 契约
-- 一个 Python core library 和 `opentask` CLI，用于确定性的状态变更
 - 一个共享 OpenClaw skill：[skills/opentask/SKILL.ZH.md](skills/opentask/SKILL.ZH.md)
+- 一个 skill 侧运行时 helper：`skills/opentask/scripts/registry_helper.py`，用于 OpenClaw 原生的确定性 registry 变更
+- 一个 Python core library 和 `opentask` CLI，用于操作者侧的确定性状态变更
 - 一个用于索引 registry 和暴露控制 API 的 FastAPI 后端
 - 一个用于 DAG 可视化和显式人工控制的 React 控制台
 
@@ -84,6 +85,11 @@ OpenTask 退化为 read-mostly control plane。
 - `nodes/<nodeId>/plan.md`、`findings.md`、`progress.md`：规范的节点级 working memory
 - `nodes/<nodeId>/handoff.md`：subagent 节点的规范父子 brief
 
+OpenClaw 原生规则：
+
+- agent 可以直接编辑 `workflows/*.task.md`、`workflow.lock.md` 和节点本地产物
+- agent 应通过 `python3 skills/opentask/scripts/registry_helper.py ...` 来创建 `runs/<runId>/` 并管理 `workflow.lock.md`、`state.json`、`refs.json`、`events.jsonl`、`control.jsonl`，而不是手工编辑这些 runtime 文件
+
 ## 安装
 
 前置条件：
@@ -130,10 +136,10 @@ OpenTask 会自动复用 `~/.openclaw/identity/` 下的本机 OpenClaw device au
 2. OpenClaw agent 使用 [skills/opentask/SKILL.ZH.md](skills/opentask/SKILL.ZH.md)。
 3. Agent 先解析当前 `sessionKey`、`deliveryContext` 和 registry root。
 4. Agent 在 `workflows/` 下创建或校验可复用的工作流文件。这个源 workflow 必须保持可复用，不能写入具体 registry 路径、`runId` 或瞬时状态说明等 run-local 元数据。
-5. Agent 通过 registry 协议为当前 session 创建或绑定 run，先完整 scaffold 规范的节点 working memory 和生命周期记录，然后再进入执行；在需要确定性 helper command 时，也可以借助 `opentask` CLI 或 core library。
+5. Agent 直接基于可复用 workflow frontmatter 运行 `python3 skills/opentask/scripts/registry_helper.py scaffold ...`，校验 run，然后再进入执行。显式 bootstrap spec 只是 override 场景下的可选项。
 6. 后续由 OpenClaw 的 cron 和 subagent 持续推进。
 
-手工等价命令：
+操作者侧等价命令：
 
 ```bash
 uv run opentask run create \

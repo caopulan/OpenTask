@@ -17,6 +17,7 @@ If `sessions_list` or any other non-read OpenClaw tool appears before `operation
 If that invalid startup already created partial workflow or run artifacts for the current attempt, delete or repair them before you restart. Reading `operations.md` later in the same failed attempt does not make the original bootstrap valid.
 Before a run is created or bound, do not begin substantive task execution. The pre-run phase is only for startup reads, registry/session resolution, minimal workflow-shaping discovery, and scaffolding.
 Once scaffolding starts, do not leave it half-finished. The same pass that creates the run should also create `workflow.lock.md`, `state.json`, `refs.json`, `events.jsonl`, `control.jsonl`, node directories, and canonical node-local working-memory files.
+The first write inside a new `runs/<runId>/` path must come from helper `scaffold`. Do not pre-create the run directory, `workflow.lock.md`, or any runtime JSONL/JSON files by hand.
 
 Registry root rules:
 
@@ -161,20 +162,18 @@ Use this pattern when the task has independent branches:
 When the workflow is ready:
 
 1. Choose a `runId`.
-2. Copy the workflow into `runs/<runId>/workflow.lock.md`.
-3. Create `state.json`, `refs.json`, `events.jsonl`, and `control.jsonl`.
-4. Create each node directory and canonical node-local working-memory files before dispatch.
-5. Fill `artifactPaths` and `workingMemory` for every eligible node up front.
+2. Prefer using the source workflow frontmatter directly with `skills/opentask/scripts/registry_helper.py scaffold`. Only write a temporary JSON bootstrap spec when the workflow shape needs an explicit helper override.
+3. Run `python3 skills/opentask/scripts/registry_helper.py --help` if you have not already confirmed the helper in this bootstrap pass.
+4. Run helper `scaffold` to create `workflow.lock.md`, `state.json`, `refs.json`, `events.jsonl`, `control.jsonl`, node directories, and canonical node-local working-memory files. This is the first valid write under `runs/<runId>/`.
+5. Fill `artifactPaths` and `workingMemory` for every eligible node up front through the helper-managed scaffold.
 6. Record the current session as:
    - `sourceSessionKey`
    - `rootSessionKey`
    - `sourceAgentId`
    - `deliveryContext`
-7. Mark entry nodes as `ready`.
-8. Append `run.created`.
-9. Append a `node.ready` event for every entry node.
-10. Verify that every canonical node-local working-memory file exists before dispatching anything.
-11. Verify that `workflow.lock.md`, `state.json`, `refs.json`, `events.jsonl`, and `control.jsonl` all exist before you stop or emit any progress update.
+7. Verify that every canonical node-local working-memory file exists before dispatching anything.
+8. Run helper `validate <runId>`.
+9. Verify that `workflow.lock.md`, `state.json`, `refs.json`, `events.jsonl`, and `control.jsonl` all exist before you stop or emit any progress update.
 
 Create or bind the run before you start any substantive execution work. If you are already spending significant time gathering sources, editing deliverables, or drafting conclusions, the workflow should normally already exist and that work should be happening inside the appropriate node.
 If run bootstrap was interrupted, resume and finish scaffolding before you append `node.started`, request driver review, or dispatch a child.
@@ -188,13 +187,13 @@ On each orchestration pass:
 2. Check running nodes first.
 3. Promote newly satisfied nodes to `ready`.
 4. Dispatch ready nodes.
-5. Update state and events. Keep event timestamps monotonic, and never write `node.started` before the matching `node.ready`.
+5. Update state and events through helper commands. Keep event timestamps monotonic, and never write `node.started` before the matching `node.ready`.
 6. Decide whether the user should be informed.
 7. Ensure cron will wake the Orchestrator Session again if the run is not terminal.
 
-Every node transition must be reflected in both `state.json` and `events.jsonl`.
+Every node transition must be reflected in both `state.json` and `events.jsonl`, and the transition should be written by `transition-node` rather than direct file edits.
 
-Do not fabricate timestamps or hand-edit duplicate lifecycle records after a runtime dispatch has already written the authoritative transition. If `node.started` was already appended for a node, repair the existing files deliberately instead of appending a second start event with guessed metadata.
+Do not fabricate timestamps or hand-edit duplicate lifecycle records after helper-managed dispatch has already written the authoritative transition. If a lifecycle transition is missing or wrong, repair the invalid state deliberately and rerun the helper instead of appending a guessed duplicate by hand.
 
 Do not skip lifecycle events for `session_turn`, `summary`, `wait`, or `approval` nodes. A completed node should normally have a complete audit chain such as:
 
@@ -222,9 +221,8 @@ The reusable source workflow prompt may stay generic. Put concrete `runs/<runId>
 Before dispatching a `session_turn` or `summary` node:
 
 - verify that bootstrap is complete and the node-local working-memory files exist
-- append `node.started`
-- set the node status to `running`
-- update `updatedAt`
+- call helper `bind` if a dedicated node session is created for this node
+- call helper `transition-node <runId> <nodeId> running`
 - if the node is being dispatched to a dedicated node session, stop doing substantive task work for that node in the Orchestrator Session immediately after dispatch; the root session should return to orchestration, monitoring, and review only
 
 ### subagent Node
@@ -253,7 +251,7 @@ Record in `refs.json`:
 - `childSessionKey`
 - child `runId` if available
 
-Append `node.started`.
+Call helper `bind` for the child session mapping, then call helper `transition-node <runId> <nodeId> running`.
 
 When spawning a child, the parent should also:
 
@@ -270,7 +268,7 @@ When a child finishes:
 3. Review node-local working-memory files if the node scope was multi-step.
 4. If files are missing, reconstruct them from the child transcript.
 5. Mark the node `completed` or `failed`.
-6. Append the matching event.
+6. Use helper `transition-node` to append the matching event and update state.
 7. Recompute which downstream nodes become `ready`.
 8. Decide whether to add, retry, skip, or rewire nodes.
 
@@ -296,7 +294,7 @@ Allowed mutations:
 Whenever you mutate:
 
 1. update `workflow.lock.md`
-2. update `state.json`
+2. update `state.json` and `events.jsonl` through the helper
 3. append an audit event explaining why
 
 ## 12. Session Interaction Rules
@@ -337,10 +335,10 @@ A run is complete when all nodes are terminal.
 Then:
 
 1. write the final summary artifact
-2. set the run status to `completed` or `failed`
-3. append `run.completed`
+2. use helper `transition-node` on the terminal node so the helper can set the run status to `completed` or `failed`
 4. disable or remove cron
 5. send the final user-visible update
+6. call helper `progress` with the final message if one was sent
 
 Before you declare completion, run a final self-check:
 
@@ -348,6 +346,7 @@ Before you declare completion, run a final self-check:
 - `control.jsonl` is either zero-byte or valid JSONL
 - `events.jsonl` is valid JSONL, chronologically ordered, and consistent with node lifecycle transitions
 - the final `workflow.lock.md`, `state.json`, and node artifacts agree on dependencies and terminal statuses
+- helper `validate <runId>` succeeds
 
 ## 15. Status Transition Rules
 

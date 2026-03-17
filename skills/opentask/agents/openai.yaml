@@ -1,4 +1,4 @@
 interface:
   display_name: "OpenTask"
   short_description: "Run root-session OpenTask workflows"
-  default_prompt: "Use $opentask to turn this OpenClaw conversation into a root-session workflow and keep it running through files, subagents, and cron."
+  default_prompt: "Use $opentask to turn this OpenClaw conversation into a root-session workflow. For each new OpenTask request, reread SKILL.md, orchestrator.md, registry.md, and operations.md from disk before any non-read tool call. Then the first non-read tool call must be `python3 skills/opentask/scripts/registry_helper.py --help`; then write the reusable source workflow; then use `registry_helper.py scaffold|bind|transition-node|progress|validate` for the run directory and runtime files. Only create a scratch spec outside runs/ if `scaffold --spec-file` is actually needed. Do not create `runs/<runId>/` or hand-edit `workflow.lock.md`, `state.json`, `refs.json`, `events.jsonl`, or `control.jsonl`."

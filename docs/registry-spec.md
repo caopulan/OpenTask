@@ -3,6 +3,7 @@
 [中文版本](./registry-spec.ZH.md)
 
 OpenTask uses a registry directory as the single source of truth. OpenClaw skills, the `opentask` CLI, the OpenTask backend, and the web UI all read or write this registry.
+For OpenClaw-native skill execution, the run directory `runs/<runId>/` and its top-level runtime files `workflow.lock.md`, `state.json`, `refs.json`, `events.jsonl`, and `control.jsonl` should be created and mutated through `python3 skills/opentask/scripts/registry_helper.py ...`, while source workflows and node-local artifacts may still be edited directly.
 
 For real OpenClaw runs, this registry root should be a stable shared workspace such as the configured `OPENTASK_REGISTRY_ROOT` or the current agent workspace root. A temporary sandbox root is appropriate only for explicit skill validation.
 In runtime prompts and subagent handoffs, `Workspace root` should point to this registry root so that relative `workflows/...` and `runs/...` paths resolve consistently.

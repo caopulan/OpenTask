@@ -34,6 +34,15 @@ The registry root for a real run must be stable and shared:
           result.json
 ```
 
+Runtime ownership rule:
+
+- `workflows/*.task.md` is the reusable source definition and may be edited directly.
+- `workflow.lock.md` may be specialized for the run.
+- `state.json`, `refs.json`, and `events.jsonl` are runtime-owned and must be created or mutated through `skills/opentask/scripts/registry_helper.py`, not by hand.
+- `control.jsonl` remains the control surface for UI or operator actions.
+- The `runs/<runId>/` directory itself is helper-owned at bootstrap time. For a new run, do not create that directory or its top-level runtime files manually; let `registry_helper.py scaffold` create them first.
+- `nodes/<nodeId>/*` artifacts and working-memory files may be written directly by the orchestrator or child sessions.
+
 ## 2. Workflow File
 
 Write the workflow directly as Markdown plus YAML frontmatter.
@@ -150,6 +159,7 @@ Put run-local metadata and freeze notes in `workflow.lock.md`, not back into the
 ## 4. state.json
 
 The Orchestrator Session must keep `state.json` current.
+In practice, that means calling `registry_helper.py scaffold`, `bind`, `transition-node`, and `progress` rather than editing `state.json` directly.
 
 `sourceSessionKey`, `sourceAgentId`, `deliveryContext`, and `rootSessionKey` must come from actual session discovery for the current run. Do not guess these values and do not invent placeholders such as `webchat` when the session was not resolved that way.
 `cronJobId` must be the actual live cron job identifier returned by OpenClaw, not a guessed or synthetic name.
@@ -197,6 +207,7 @@ Keep `artifactPaths` synchronized with actual outputs. If the node writes `resul
 ## 5. refs.json
 
 `refs.json` stores execution bindings.
+In practice, mutate it through helper `bind` instead of direct edits.
 
 The binding fields in `refs.json` must match the same discovered live session metadata used in `state.json`. Never fabricate or default them without resolving the current session first.
 The cron binding fields in `refs.json` must also match the actual cron object returned by OpenClaw.
@@ -224,6 +235,7 @@ Minimum fields:
 ## 6. events.jsonl
 
 Append one JSON object per line. Never rewrite history.
+Append through the helper; do not replace or hand-rewrite existing lines.
 
 Append events in chronological order. Do not backdate a new event so that its timestamp is earlier than a line already written.
 

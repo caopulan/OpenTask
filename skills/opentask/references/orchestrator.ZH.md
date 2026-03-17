@@ -17,6 +17,7 @@
 如果这次无效启动已经为当前尝试创建了半成品 workflow 或 run 产物，重启前必须先删除或修复它们。在同一条失败尝试里晚点再读 `operations.ZH.md`，并不能让原来的 bootstrap 重新合法。
 在 run 创建或绑定完成之前，不要开始任何实质性任务执行。run 之前的阶段只允许做启动读取、registry/session 解析、用于确定工作流形状的最小发现，以及 scaffolding。
 一旦开始做 scaffolding，就不要留下半截状态。创建 run 的这一轮里，也必须同时创建 `workflow.lock.md`、`state.json`、`refs.json`、`events.jsonl`、`control.jsonl`、节点目录和标准 node-local working-memory 文件。
+一个新 `runs/<runId>/` 路径里的第一笔写入必须来自 helper `scaffold`。不要手工预建 run 目录、`workflow.lock.md` 或任何 runtime JSON/JSONL 文件。
 
 registry root 规则：
 
@@ -161,20 +162,18 @@ Subagent Session 是通过 `sessions_spawn` 创建的子执行上下文。
 当工作流准备好之后：
 
 1. 选择一个 `runId`
-2. 把工作流复制到 `runs/<runId>/workflow.lock.md`
-3. 创建 `state.json`、`refs.json`、`events.jsonl`、`control.jsonl`
-4. 在派发前就创建每个节点目录和规范的节点级 working-memory 文件
-5. 预先填好所有合适节点的 `artifactPaths` 和 `workingMemory`
+2. 优先直接让 `skills/opentask/scripts/registry_helper.py scaffold` 读取源 workflow frontmatter。只有在工作流形状需要显式 helper override 时，才写临时 JSON bootstrap spec
+3. 如果这一轮 bootstrap 还没确认过 helper，可先运行 `python3 skills/opentask/scripts/registry_helper.py --help`
+4. 运行 helper `scaffold`，由它创建 `workflow.lock.md`、`state.json`、`refs.json`、`events.jsonl`、`control.jsonl`、节点目录和规范的节点级 working-memory 文件；这是 `runs/<runId>/` 下第一笔合法写入
+5. 通过 helper 管理的 scaffold，预先填好所有合适节点的 `artifactPaths` 和 `workingMemory`
 6. 把当前 session 记录为：
    - `sourceSessionKey`
    - `rootSessionKey`
    - `sourceAgentId`
    - `deliveryContext`
-7. 把入口节点标成 `ready`
-8. 追加 `run.created`
-9. 为每个入口节点追加 `node.ready`
-10. 在派发任何节点之前，确认所有规范的节点级 working-memory 文件都已存在
-11. 在停止、等待或发送任何进度更新前，确认 `workflow.lock.md`、`state.json`、`refs.json`、`events.jsonl` 和 `control.jsonl` 都已经存在
+7. 在派发任何节点之前，确认所有规范的节点级 working-memory 文件都已存在
+8. 运行 helper `validate <runId>`
+9. 在停止、等待或发送任何进度更新前，确认 `workflow.lock.md`、`state.json`、`refs.json`、`events.jsonl` 和 `control.jsonl` 都已经存在
 
 在开始任何实质执行之前，就应该先创建或绑定 run。如果你已经花了较多时间搜集资料、修改交付物或撰写结论，通常说明 workflow 早就该存在，而这些工作应该发生在对应节点内部。
 如果 run bootstrap 中途被打断，必须先恢复并完成 scaffolding，然后才能追加 `node.started`、请求 driver review 或派发 child。
@@ -188,13 +187,13 @@ Subagent Session 是通过 `sessions_spawn` 创建的子执行上下文。
 2. 先检查 running 节点
 3. 把依赖满足的节点提升为 `ready`
 4. 派发 ready 节点
-5. 更新状态和事件。事件时间戳必须单调递增，绝不能先写某个节点的 `node.started` 再写它的 `node.ready`
+5. 通过 helper 更新状态和事件。事件时间戳必须单调递增，绝不能先写某个节点的 `node.started` 再写它的 `node.ready`
 6. 判断是否应该通知用户
 7. 如果 run 还没结束，确保 cron 还会再次唤醒 Orchestrator Session
 
-每一次节点状态迁移，都必须同时反映在 `state.json` 和 `events.jsonl` 里。
+每一次节点状态迁移，都必须同时反映在 `state.json` 和 `events.jsonl` 里，而且应该通过 `transition-node` 来写，而不是直接 edit 文件。
 
-不要伪造时间戳，也不要在 runtime 派发已经写入权威生命周期记录后，再手工补写重复事件。如果某个节点的 `node.started` 已经存在，就应该有意识地修复当前文件状态，而不是再追加一条带猜测元数据的第二份 `node.started`。
+不要伪造时间戳，也不要在 helper 已经写入权威生命周期记录后，再手工补写重复事件。如果某个生命周期迁移缺失或错误，就先有意识地修复当前状态，再重新调用 helper，而不是手写一条带猜测元数据的重复事件。
 
 不要跳过 `session_turn`、`summary`、`wait` 或 `approval` 节点的生命周期事件。一个正常完成的节点通常应该有完整审计链：
 
@@ -222,9 +221,8 @@ Subagent Session 是通过 `sessions_spawn` 创建的子执行上下文。
 在派发 `session_turn` 或 `summary` 节点前：
 
 - 先确认 bootstrap 已完整，且该节点的 working-memory 文件都已存在
-- 先追加 `node.started`
-- 把节点状态设为 `running`
-- 更新 `updatedAt`
+- 如果这个节点有专用 node session，先调用 helper `bind`
+- 然后调用 helper `transition-node <runId> <nodeId> running`
 - 如果这个节点被派发到专用 node session，那么派发后 root Orchestrator Session 就必须立即停止该节点的实质任务执行，只保留 orchestration、监控和审阅职责
 
 ### subagent 节点
@@ -253,7 +251,7 @@ child task 必须包含：
 - `childSessionKey`
 - 可用时记录 child 的 `runId`
 
-然后追加 `node.started`。
+先用 helper `bind` 写 child session 映射，再用 helper `transition-node <runId> <nodeId> running`。
 
 spawn child 时，父 session 还应该：
 
@@ -270,7 +268,7 @@ child 完成后：
 3. 如果节点本身是多步骤任务，也检查节点级 working-memory 文件
 4. 如果缺失，就根据 child transcript 回填
 5. 把节点标为 `completed` 或 `failed`
-6. 追加对应事件
+6. 用 helper `transition-node` 追加对应事件并更新状态
 7. 重新计算哪些下游节点会变成 `ready`
 8. 决定是否需要增节点、重试、跳过或 rewiring
 
@@ -296,7 +294,7 @@ child 完成之后，只有 Orchestrator Session 可以修改全局工作流或 
 每次变更都必须：
 
 1. 更新 `workflow.lock.md`
-2. 更新 `state.json`
+2. 通过 helper 更新 `state.json` 和 `events.jsonl`
 3. 追加一个解释原因的审计事件
 
 ## 12. Session 交互规则
@@ -337,10 +335,10 @@ child 完成之后，只有 Orchestrator Session 可以修改全局工作流或 
 然后：
 
 1. 写最终 summary 产物
-2. 把 run 状态设为 `completed` 或 `failed`
-3. 追加 `run.completed`
+2. 对终态节点调用 helper `transition-node`，让 helper 自动把 run 状态推进到 `completed` 或 `failed`
 4. 禁用或删除 cron
 5. 发送最终用户可见更新
+6. 如果发了最终可见消息，再调用 helper `progress`
 
 在宣布完成之前，先做一次最终自检：
 
@@ -348,6 +346,7 @@ child 完成之后，只有 Orchestrator Session 可以修改全局工作流或 
 - `control.jsonl` 是否为零字节空文件或合法 JSONL
 - `events.jsonl` 是否为合法 JSONL、时间顺序正确，并且与节点生命周期迁移一致
 - 最终 `workflow.lock.md`、`state.json` 与各节点产物中的依赖和终态是否一致
+- helper `validate <runId>` 是否通过
 
 ## 15. 状态迁移规则
 

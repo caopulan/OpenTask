@@ -32,9 +32,33 @@ For a real run, the startup action order should be:
 7. only then create or bind the run
 8. only then begin task execution
 
-For each new user request that invokes `opentask`, re-establish this ordered startup sequence for that run attempt. Do not assume an earlier read from an older turn still makes the current bootstrap valid.
+For each new user request that invokes `opentask`, re-establish this ordered startup sequence for that run attempt by reading these files from disk again. Do not rely on older in-context copies of `SKILL.md`, `orchestrator.md`, `registry.md`, or `operations.md`, and do not assume an earlier read from an older turn still makes the current bootstrap valid.
 
 Once you start run scaffolding, finish it in the same execution pass. Do not stop after writing only `workflows/*.task.md` or only node directories. A valid bootstrap must leave behind `workflow.lock.md`, `state.json`, `refs.json`, `events.jsonl`, `control.jsonl`, node directories, and canonical node-local working-memory files for every eligible node.
+
+## Mandatory Bootstrap Gate
+
+For a real run, the first non-read tool call after the ordered startup reads must be an `exec` call that confirms the helper is available:
+
+```bash
+python3 skills/opentask/scripts/registry_helper.py --help
+```
+
+Treat any other first non-read tool call as a protocol failure for that run attempt.
+
+Before helper `scaffold` succeeds:
+
+- do not create `runs/<runId>/` by hand
+- do not write `workflow.lock.md`
+- do not write `state.json`, `refs.json`, `events.jsonl`, or `control.jsonl`
+- do not dispatch a node, spawn a child, configure cron, or send milestone updates
+
+The only allowed pre-scaffold writes are:
+
+- the reusable source workflow at `workflows/*.task.md`
+- an optional scratch bootstrap spec JSON outside the run directory, for example `.opentask-bootstrap/<runId>.spec.json`, if you need helper `scaffold --spec-file`
+
+If you violate this gate, stop, quarantine or delete the invalid run attempt, and restart from the ordered startup reads.
 
 ## Installation Assumption
 
@@ -48,6 +72,7 @@ If you cannot read this file or the linked references from the current session, 
 - The Orchestrator Session plans the workflow, writes and updates registry files, spawns subagents, absorbs their results, and decides when to message the user.
 - Subagents execute scoped work. They do not own the global workflow state.
 - OpenTask UI and backend are optional control surfaces for humans. The agent must be able to operate using only OpenClaw native tools plus the file protocol in this skill.
+- This skill ships a runtime helper at `skills/opentask/scripts/registry_helper.py`. Use OpenClaw `exec` to run that helper for run scaffolding and runtime registry mutations.
 - The registry root for a real run is the stable OpenClaw workspace or configured `OPENTASK_REGISTRY_ROOT`. Do not create a fresh temporary repo or use the shared-skill install directory as the registry root for a real user task unless the operator explicitly asked for an isolated skill test.
 - In runtime prompts and child handoffs, `Workspace root` means the registry root. Relative `runs/...` and `workflows/...` paths are resolved from that root, not from the OpenTask source repo.
 
@@ -60,8 +85,11 @@ If you cannot read this file or the linked references from the current session, 
 - Keep the versioned source workflow reusable. Do not add run-local metadata sections such as `Run Information`, registry paths, concrete `runId` values, or transient status text to `workflows/*.task.md`; put those details in `workflow.lock.md`, node-local handoff files, or other run-local artifacts instead.
 - Send user-visible progress through explicit updates; do not expose raw orchestration prompts.
 - Let OpenClaw execute nodes and cron turns; let OpenTask record registry state and controls.
-- Write workflow and run files directly when needed; do not depend on a special OpenTask runtime command to make progress.
-- Update `state.json`, `refs.json`, and `events.jsonl` intentionally as part of the orchestration protocol described in the references.
+- Write the reusable source workflow and node-local artifacts directly when needed.
+- Use helper `scaffold` as the only valid creator of `runs/<runId>/`, `workflow.lock.md`, `state.json`, `refs.json`, `events.jsonl`, and `control.jsonl`.
+- Create and mutate `state.json`, `refs.json`, and `events.jsonl` through `python3 skills/opentask/scripts/registry_helper.py ...`; do not hand-edit those runtime files.
+- Prefer letting `registry_helper.py scaffold` read the source workflow frontmatter directly. Only create a temporary JSON bootstrap spec when the workflow shape needs an explicit helper override; keep that spec outside the run directory and treat it as scratch input, not as a user-facing artifact.
+- If you use `write` or `edit` directly on `runs/<runId>/state.json`, `refs.json`, or `events.jsonl`, that bootstrap or orchestration pass is invalid. Delete or repair the bad run artifacts, then restart the attempt with the helper.
 - Do not fabricate or backdate timestamps, session keys, delivery metadata, cron ids, or lifecycle transitions. Use discovered values and the real write-time clock, or leave the field for the runtime layer to populate. If a lifecycle event already exists, do not append a second hand-authored copy of the same transition.
 - Leave node outputs as `report.md` and `result.json`.
 - For complex execution nodes, keep node-local working memory in `runs/<runId>/nodes/<nodeId>/plan.md`, `findings.md`, and `progress.md`; subagent handoffs belong in `handoff.md`.
@@ -71,3 +99,4 @@ If you cannot read this file or the linked references from the current session, 
 - After a node has been dispatched to a dedicated node session or child session, the Orchestrator Session must stop doing that node's substantive task work itself. It may monitor, update registry state, handle controls, and review results, but it must not continue the same research, browsing, writing, or analysis in parallel from the root session.
 - Internal cron turns are orchestration-only. They must not use user-visible announce delivery. Send user-facing updates only through explicit progress messages at meaningful milestones.
 - Do not create extra root-level or sidecar planning-memory files such as `task_plan.md`, `findings.md`, or `progress.md` unless the current assignment explicitly requires them. Use the workflow/run registry plus canonical node-local memory files instead.
+- Run `python3 skills/opentask/scripts/registry_helper.py validate <runId>` before declaring a bootstrap or terminal state complete. Treat validation failures as protocol bugs that must be repaired before you continue.
