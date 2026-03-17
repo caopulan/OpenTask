@@ -270,7 +270,8 @@ nodes:
     assert "Implement the delegated task" in gateway.spawned_sessions[0]["task"]
     assert f"runs/{state.run_id}" in gateway.spawned_sessions[0]["task"]
     assert f"runs/{state.run_id}/nodes/delegate/handoff.md" in gateway.spawned_sessions[0]["task"]
-    assert gateway.spawned_sessions[0]["cwd"] == str(service.project_root)
+    assert gateway.spawned_sessions[0]["cwd"] == str(service.execution_root)
+    assert f"Workspace root: {service.execution_root}" in gateway.spawned_sessions[0]["task"]
     assert not any(
         msg["session_key"].endswith(":node:delegate") and msg["message"] == "Implement the delegated task"
         for msg in gateway.sent_messages
@@ -376,6 +377,105 @@ async def test_missing_node_report_backfills_final_assistant_text(tmp_path: Path
     assert execute.status == "completed"
     assert report_path.read_text(encoding="utf-8") == (
         "# Execution Report\n\n- Result: completed\n- Notes: used transcript fallback"
+    )
+
+
+@pytest.mark.asyncio
+async def test_missing_report_backfills_even_when_working_memory_files_exist(tmp_path: Path) -> None:
+    gateway = FakeGateway()
+    service = OpenTaskService(store=RunStore(runtime_root=tmp_path / ".opentask"), gateway=gateway)
+    markdown = """---
+workflowId: transcript-backfill-subagent
+title: Transcript backfill subagent
+defaults:
+  agentId: main
+nodes:
+  - id: analyze
+    title: Analyze ecosystem
+    kind: subagent
+    needs: []
+    prompt: Analyze the collected ecosystem.
+    outputs:
+      mode: report
+      requiredFiles:
+        - nodes/analyze/findings.md
+        - nodes/analyze/progress.md
+        - nodes/analyze/handoff.md
+        - nodes/analyze/report.md
+        - nodes/analyze/result.json
+  - id: finish
+    title: Finish
+    kind: summary
+    needs: [analyze]
+    prompt: Summarize
+    outputs:
+      mode: report
+---
+"""
+
+    state = await service.create_run(CreateRunRequest(workflowMarkdown=markdown))
+    analyze = next(node for node in state.nodes if node.id == "analyze")
+    assert analyze.child_session_key is not None
+    gateway.session_histories[analyze.child_session_key] = [
+        {"role": "user", "content": [{"type": "text", "text": "Analyze the ecosystem."}]},
+        {
+            "role": "assistant",
+            "stopReason": "stop",
+            "content": [
+                {
+                    "type": "text",
+                    "text": "# Ecosystem Report\n\n- Assessment: stable\n- Notes: recovered from transcript\n",
+                    "textSignature": '{"v":1,"phase":"final_answer"}',
+                }
+            ],
+        },
+    ]
+
+    state = await service.tick_run(state.run_id)
+    analyze = next(node for node in state.nodes if node.id == "analyze")
+    report_path = tmp_path / ".opentask" / "runs" / state.run_id / "nodes" / "analyze" / "report.md"
+
+    assert analyze.status == "completed"
+    assert report_path.exists()
+    assert report_path.read_text(encoding="utf-8") == (
+        "# Ecosystem Report\n\n- Assessment: stable\n- Notes: recovered from transcript"
+    )
+
+
+@pytest.mark.asyncio
+async def test_relative_workflow_paths_resolve_from_registry_root(tmp_path: Path) -> None:
+    gateway = FakeGateway()
+    runtime_root = tmp_path / "registry"
+    service = OpenTaskService(
+        store=RunStore(runtime_root=runtime_root),
+        gateway=gateway,
+        project_root=tmp_path / "repo",
+    )
+    workflow_path = runtime_root / "workflows" / "relative.task.md"
+    workflow_path.parent.mkdir(parents=True, exist_ok=True)
+    workflow_path.write_text(
+        """---
+workflowId: relative-demo
+title: Relative demo
+nodes:
+  - id: gather
+    title: Gather
+    kind: session_turn
+    needs: []
+    prompt: Gather context
+    outputs:
+      mode: report
+---
+""",
+        encoding="utf-8",
+    )
+
+    state = await service.create_run(CreateRunRequest(workflowPath="workflows/relative.task.md"))
+
+    assert state.workflow_id == "relative-demo"
+    assert any(
+        msg["session_key"] == state.driver_session_key and f"Workspace root: {runtime_root}" in msg["message"]
+        for msg in gateway.sent_messages
     )
 
 
@@ -708,3 +808,19 @@ def test_extract_last_assistant_final_text_ignores_internal_blocks() -> None:
     ]
 
     assert extract_last_assistant_final_text(history) == "Final report body"
+
+
+def test_extract_last_assistant_final_text_ignores_aborted_partial_output() -> None:
+    history = [
+        {"role": "user", "content": [{"type": "text", "text": "Summarize the result."}]},
+        {
+            "role": "assistant",
+            "stopReason": "aborted",
+            "errorMessage": "Request was aborted.",
+            "content": [
+                {"type": "text", "text": "Now I'll analyze the ecosystem comprehensively."},
+            ],
+        },
+    ]
+
+    assert extract_last_assistant_final_text(history) is None

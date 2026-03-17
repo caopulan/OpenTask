@@ -25,6 +25,11 @@
 - 在这台机器上做本地 OpenClaw 验证时，`main` agent 继承的 workspace 是 `/Users/chunqiu/clawd`。
 - `main` 的 workspace skill 安装根目录是 `/Users/chunqiu/clawd/skills`。
 - 如果用软链接安装 skill，软链接最终解析后的目标也必须落在 `/Users/chunqiu/clawd/skills` 下面；OpenClaw 会拒绝加载解析后逃逸出这个根目录的 workspace skill。
+- `opentask` 的真实 OpenClaw 验证必须走 `main`，并使用 registry root `/Users/chunqiu/clawd`；不要把 `skilltest-opentask-*` agent 当作面向用户的正式验证环境。
+- 只要改动了 `skills/opentask/`，在做本机 OpenClaw 验证前都要先执行 `scripts/sync_opentask_skill.sh`，把仓库内 skill 镜像到实际安装副本。
+- 检查一次真实 OpenClaw 运行是否正确使用了 skill 时，要查看 `/Users/chunqiu/.openclaw/agents/main/sessions/` 下最新的 `main` session transcript，并确认它在任何非读取操作前先读取了 `opentask/SKILL.md`。
+- 对 `opentask` 的启动验证，还要确认 transcript 在 `sessions_list` 之前已经按顺序读完 `orchestrator.md`、`registry.md`、`operations.md`。如果顺序错了，即使后面又补读了 `operations.md`，这次 run 也应视为无效。
+- 如果一次失败的本机验证为这次无效尝试留下了半成品 `runs/<runId>/` scaffold 或源 workflow，就要在下一次验证前先清理，避免旧产物污染后续 transcript 和结果判断。
 
 ## Python 环境
 - 使用 `uv` 管理 Python 版本、虚拟环境、依赖和命令。

@@ -9,6 +9,7 @@ The registry root for a real run must be stable and shared:
 - Prefer `OPENTASK_REGISTRY_ROOT` when configured.
 - Otherwise use the current OpenClaw agent workspace root.
 - Do not silently create a new temporary repo for a real user run.
+- In runtime prompts and child handoffs, `Workspace root` must refer to this registry root. Relative `workflows/...` and `runs/...` paths are resolved from here.
 
 ## 1. File Layout
 

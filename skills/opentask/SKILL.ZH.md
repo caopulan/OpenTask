@@ -13,6 +13,8 @@
 3. [references/operations.ZH.md](./references/operations.ZH.md)
 
 在这三个引用文件按顺序全部读完之前，不要调用 `sessions_list`、不要写文件、不要派发 child、不要请求 driver review，也不要操作 cron。
+即使只是为了发现当前会话信息，`sessions_list` 也属于非读取工具调用。如果它发生在读完 `references/operations.ZH.md` 之前，这次启动尝试就算协议无效，必须先重启启动流程，再去写文件或派发执行。
+这类错误唯一允许的恢复方式是：停止当前 bootstrap，删除或修复这次无效尝试留下的半成品 run/workflow，再从第 1 步重新开始。不要指望“之后再补读 `operations.ZH.md`”就能让同一轮 bootstrap 继续有效。
 
 对真实 run 来说，启动动作顺序应当是：
 
@@ -24,6 +26,10 @@
 6. 再去解析 registry root
 7. 然后创建或绑定 run
 8. 只有在这之后才能开始任务执行
+
+每当有新的用户请求要调用 `opentask` 时，都要为这次 run 尝试重新建立这套有序启动流程。不要假设之前某一轮 turn 里读过 references，就能让当前这次 bootstrap 自动合法。
+
+一旦开始做 run scaffolding，就必须在同一轮执行里把它补齐。不要只写 `workflows/*.task.md`，也不要只建 `nodes/` 目录。合法的 bootstrap 必须同时留下 `workflow.lock.md`、`state.json`、`refs.json`、`events.jsonl`、`control.jsonl`、节点目录，以及每个适用节点的标准 working-memory 文件。
 
 ## 安装前提
 
@@ -38,6 +44,7 @@
 - Subagent 只负责执行被分配的范围任务，不拥有全局工作流状态。
 - OpenTask 的前后端只是给人用的控制面。即使没有这些部分，agent 也必须能够只靠 OpenClaw 原生工具和本 skill 里的文件协议继续运行。
 - 真实 run 使用的 registry root 应该是稳定的 OpenClaw workspace，或者配置好的 `OPENTASK_REGISTRY_ROOT`。除非操作者明确要求做隔离 skill 测试，否则不要为真实用户任务新建临时 repo，也不要把 shared skill 安装目录当作 registry root。
+- 在运行时 prompt 和 child handoff 里，`Workspace root` 指的就是 registry root。`runs/...`、`workflows/...` 这类相对路径都应当相对于这个根目录解析，而不是相对于 OpenTask 源码 repo。
 
 ## 保持这些规则
 
@@ -53,6 +60,7 @@
 - 节点输出统一写成 `report.md` 和 `result.json`。
 - 对于复杂执行节点，把节点级工作记忆写到 `runs/<runId>/nodes/<nodeId>/plan.md`、`findings.md`、`progress.md`；subagent 的父子 handoff 写到 `handoff.md`。
 - 在 run scaffolding 阶段就创建 `workflow.lock.md`、`state.json`、`refs.json`、`events.jsonl`、`control.jsonl`、节点目录、规范 working-memory 文件，以及完整的初始节点元数据，然后再进入实质执行。
+- 只创建出半截 run 目录也算协议失败。如果你发现某个 run 只有 `nodes/`，或者只有源 workflow 文件，没有完整 scaffold，就必须先修复缺失文件，再继续任何规划、调研、用户通知或节点派发。
 - 在 bootstrap 完成前，不要派发第一个节点，不要追加 `node.started`，也不要请求 driver review。如果 scaffolding 中途被打断，必须先补齐缺失文件，再继续执行。
 - 内部 cron turn 只用于 orchestration，不得使用用户可见的 announce 投递。只有在真正的里程碑节点上，才通过显式 progress message 给用户发更新。
 - 除非当前 assignment 明确要求，否则不要在 repo 根或旁路位置创建 `task_plan.md`、`findings.md`、`progress.md` 这类额外 planning memory 文件。应使用 workflow/run registry 和规范的节点级 working-memory 文件。

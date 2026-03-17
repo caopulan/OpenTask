@@ -14,7 +14,9 @@ Before you write any workflow or run file, or call any non-read OpenClaw tool:
 
 Do not call `sessions_list`, `sessions_spawn`, cron tools, or message-send tools until those reads are complete.
 If `sessions_list` or any other non-read OpenClaw tool appears before `operations.md` is read, treat that startup attempt as protocol-invalid and restart the startup sequence cleanly before writing or dispatching anything.
+If that invalid startup already created partial workflow or run artifacts for the current attempt, delete or repair them before you restart. Reading `operations.md` later in the same failed attempt does not make the original bootstrap valid.
 Before a run is created or bound, do not begin substantive task execution. The pre-run phase is only for startup reads, registry/session resolution, minimal workflow-shaping discovery, and scaffolding.
+Once scaffolding starts, do not leave it half-finished. The same pass that creates the run should also create `workflow.lock.md`, `state.json`, `refs.json`, `events.jsonl`, `control.jsonl`, node directories, and canonical node-local working-memory files.
 
 Registry root rules:
 
@@ -22,6 +24,7 @@ Registry root rules:
 - Otherwise use the current OpenClaw agent workspace root.
 - For a real user workflow, do not create a fresh temporary repo and do not use the shared-skill install directory as the registry root.
 - Only use a temporary test root when the operator explicitly asks for isolated skill validation.
+- When you write `Workspace root` in a runtime prompt or child handoff, it must equal this registry root. Relative `runs/...` and `workflows/...` paths are resolved from here.
 
 Session metadata rules:
 
@@ -171,9 +174,11 @@ When the workflow is ready:
 8. Append `run.created`.
 9. Append a `node.ready` event for every entry node.
 10. Verify that every canonical node-local working-memory file exists before dispatching anything.
+11. Verify that `workflow.lock.md`, `state.json`, `refs.json`, `events.jsonl`, and `control.jsonl` all exist before you stop or emit any progress update.
 
 Create or bind the run before you start any substantive execution work. If you are already spending significant time gathering sources, editing deliverables, or drafting conclusions, the workflow should normally already exist and that work should be happening inside the appropriate node.
 If run bootstrap was interrupted, resume and finish scaffolding before you append `node.started`, request driver review, or dispatch a child.
+If you discover that a previous attempt only created the source workflow or only created `runs/<runId>/nodes/`, treat that run as incomplete bootstrap and repair it before anything else.
 
 ## 8. Execution Loop
 

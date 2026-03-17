@@ -5,6 +5,7 @@
 OpenTask uses a registry directory as the single source of truth. OpenClaw skills, the `opentask` CLI, the OpenTask backend, and the web UI all read or write this registry.
 
 For real OpenClaw runs, this registry root should be a stable shared workspace such as the configured `OPENTASK_REGISTRY_ROOT` or the current agent workspace root. A temporary sandbox root is appropriate only for explicit skill validation.
+In runtime prompts and subagent handoffs, `Workspace root` should point to this registry root so that relative `workflows/...` and `runs/...` paths resolve consistently.
 
 ## Layout
 

@@ -20,7 +20,7 @@ OpenTask is built around a simple split:
 
 The workflow must keep running even when the OpenTask backend or frontend is down. The shared source of truth is a registry directory containing versioned workflows and run folders under `runs/`.
 
-For real runs, that registry root should be the stable OpenClaw workspace or the configured `OPENTASK_REGISTRY_ROOT`, not a throwaway temp directory.
+For real runs, that registry root should be the stable OpenClaw workspace or the configured `OPENTASK_REGISTRY_ROOT`, not a throwaway temp directory. Runtime prompts and subagent handoffs should treat that same registry root as `Workspace root`, so relative `workflows/...` and `runs/...` paths resolve from the same place OpenClaw is executing in.
 
 ## What It Ships
 

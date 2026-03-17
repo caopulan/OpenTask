@@ -9,6 +9,7 @@
 - 如果配置了 `OPENTASK_REGISTRY_ROOT`，优先使用它
 - 否则使用当前 OpenClaw agent 的 workspace 根目录
 - 对真实用户 run，不要静默新建一个临时 repo
+- 在运行时 prompt 和 child handoff 里，`Workspace root` 必须指向这个 registry root。`workflows/...`、`runs/...` 这类相对路径都从这里解析。
 
 ## 1. 目录结构
 

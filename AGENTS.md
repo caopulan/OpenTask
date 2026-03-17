@@ -25,6 +25,11 @@ English | [中文](AGENTS.ZH.md)
 - For local OpenClaw validation on this machine, the `main` agent inherits workspace `/Users/chunqiu/clawd`.
 - Workspace-installed skills for `main` live under `/Users/chunqiu/clawd/skills`.
 - If a skill is installed via symlink, the symlink target must also resolve under `/Users/chunqiu/clawd/skills`; OpenClaw rejects workspace skills whose resolved path escapes that root.
+- Real OpenClaw validation for `opentask` must run through `main` with registry root `/Users/chunqiu/clawd`; do not use `skilltest-opentask-*` agents for user-facing verification.
+- Before any local OpenClaw validation after editing `skills/opentask/`, mirror the repo skill into the installed copy with `scripts/sync_opentask_skill.sh`.
+- When checking whether a real OpenClaw run used the skill correctly, inspect the latest `main` session transcript under `/Users/chunqiu/.openclaw/agents/main/sessions/` and confirm it read `opentask/SKILL.md` before non-read actions.
+- For `opentask` startup validation, also confirm the transcript reads `orchestrator.md`, `registry.md`, and `operations.md` before `sessions_list`. If the order is wrong, treat the run as invalid even if it later reads `operations.md`.
+- If a failed local validation created a partial `runs/<runId>/` scaffold or source workflow for that invalid attempt, clean it up before the next validation so the next transcript is not contaminated by stale artifacts.
 
 ## Python Environment
 - Use `uv` for Python version, virtual environment, dependency, and command management.

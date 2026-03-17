@@ -9,6 +9,8 @@ def extract_last_assistant_final_text(messages: Iterable[dict[str, Any]]) -> str
     for message in reversed(list(messages)):
         if not isinstance(message, dict) or message.get("role") != "assistant":
             continue
+        if _is_aborted_message(message):
+            continue
 
         final_blocks: list[str] = []
         visible_blocks: list[str] = []
@@ -48,6 +50,14 @@ def _clean_text(value: Any) -> str | None:
         return None
     text = value.replace("[[reply_to_current]]", "").strip()
     return text or None
+
+
+def _is_aborted_message(message: dict[str, Any]) -> bool:
+    stop_reason = str(message.get("stopReason") or "").strip().lower()
+    if stop_reason == "aborted":
+        return True
+    error_message = message.get("errorMessage")
+    return isinstance(error_message, str) and bool(error_message.strip())
 
 
 def _is_final_answer(block: dict[str, Any]) -> bool:

@@ -14,7 +14,9 @@
 
 在这些读取完成之前，不要调用 `sessions_list`、`sessions_spawn`、cron 工具或消息发送工具。
 如果在读完 `operations.ZH.md` 之前就出现了 `sessions_list` 或任何其他非读取型 OpenClaw 工具调用，那么这次启动应视为协议无效；必须先把启动顺序重新走对，再去写文件或派发执行。
+如果这次无效启动已经为当前尝试创建了半成品 workflow 或 run 产物，重启前必须先删除或修复它们。在同一条失败尝试里晚点再读 `operations.ZH.md`，并不能让原来的 bootstrap 重新合法。
 在 run 创建或绑定完成之前，不要开始任何实质性任务执行。run 之前的阶段只允许做启动读取、registry/session 解析、用于确定工作流形状的最小发现，以及 scaffolding。
+一旦开始做 scaffolding，就不要留下半截状态。创建 run 的这一轮里，也必须同时创建 `workflow.lock.md`、`state.json`、`refs.json`、`events.jsonl`、`control.jsonl`、节点目录和标准 node-local working-memory 文件。
 
 registry root 规则：
 
@@ -22,6 +24,7 @@ registry root 规则：
 - 否则使用当前 OpenClaw agent 的 workspace 根目录
 - 对真实用户工作流，不要新建一个临时 repo，也不要把 shared skill 安装目录当作 registry root
 - 只有操作者明确要求做隔离 skill 验证时，才使用临时测试目录
+- 当你在运行时 prompt 或 child handoff 里写 `Workspace root` 时，它必须等于这个 registry root。`runs/...`、`workflows/...` 这类相对路径都从这里解析。
 
 session 元数据规则：
 
@@ -171,9 +174,11 @@ Subagent Session 是通过 `sessions_spawn` 创建的子执行上下文。
 8. 追加 `run.created`
 9. 为每个入口节点追加 `node.ready`
 10. 在派发任何节点之前，确认所有规范的节点级 working-memory 文件都已存在
+11. 在停止、等待或发送任何进度更新前，确认 `workflow.lock.md`、`state.json`、`refs.json`、`events.jsonl` 和 `control.jsonl` 都已经存在
 
 在开始任何实质执行之前，就应该先创建或绑定 run。如果你已经花了较多时间搜集资料、修改交付物或撰写结论，通常说明 workflow 早就该存在，而这些工作应该发生在对应节点内部。
 如果 run bootstrap 中途被打断，必须先恢复并完成 scaffolding，然后才能追加 `node.started`、请求 driver review 或派发 child。
+如果你发现之前某次尝试只创建了源 workflow，或者只创建了 `runs/<runId>/nodes/`，就把这个 run 视为 bootstrap 未完成，先修复缺失 scaffold，再做任何其他事情。
 
 ## 8. 执行循环
 

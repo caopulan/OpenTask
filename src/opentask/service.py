@@ -126,6 +126,7 @@ class OpenTaskService:
         self.settings = get_settings()
         self.project_root = project_root or self.settings.project_root
         self.store = store or RunStore()
+        self.execution_root = self.store.registry_root
         self.gateway = gateway or OpenClawClient()
         self.run_file_lock = RunFileLock(self.store.runtime_root)
         self._subscribers: dict[str, set[asyncio.Queue[dict]]] = defaultdict(set)
@@ -340,7 +341,7 @@ class OpenTaskService:
         if request.workflow_path:
             candidate = Path(request.workflow_path)
             if not candidate.is_absolute():
-                candidate = self.project_root / candidate
+                candidate = self.execution_root / candidate
             return load_workflow(candidate)
         if request.task_text:
             title = request.title or "OpenTask run"
@@ -1200,7 +1201,7 @@ class OpenTaskService:
                     agent_id=workflow_defaults.agent_id,
                     model=workflow_defaults.model,
                     thinking=workflow_defaults.thinking,
-                    cwd=str(self.project_root),
+                    cwd=str(self.execution_root),
                     timeout_seconds=max(1, (timeout_ms + 999) // 1000),
                 )
                 child_session_key = str(response.get("childSessionKey") or "")
@@ -1319,7 +1320,15 @@ class OpenTaskService:
         if node.outputs_mode != "report":
             return node.artifact_paths
         run_dir = self.store.runs_root / run_id
-        if any((run_dir / artifact).exists() for artifact in node.artifact_paths):
+        report_artifact = next(
+            (
+                artifact
+                for artifact in node.artifact_paths
+                if Path(artifact).name == "report.md"
+            ),
+            None,
+        )
+        if report_artifact and (run_dir / report_artifact).exists():
             return node.artifact_paths
         session_key = node.child_session_key or node.session_key
         if session_key:
@@ -1400,7 +1409,7 @@ class OpenTaskService:
         run_dir = self._run_dir_rel(run_id)
         return (
             f"You are the root orchestrator session for OpenTask run {run_id}.\n"
-            f"Workspace root: {self.project_root}\n"
+            f"Workspace root: {self.execution_root}\n"
             f"Run directory: {run_dir}\n"
             f"Review the frozen workflow at {run_dir}/workflow.lock.md, refs at {run_dir}/refs.json, and pending controls at {run_dir}/control.jsonl.\n"
             "Do not overwrite workflow.lock.md directly; use it as the frozen execution plan and let OpenTask apply explicit mutations.\n\n"
@@ -1411,7 +1420,7 @@ class OpenTaskService:
         run_dir = self._run_dir_rel(run_id)
         return (
             f"You are the idempotent root orchestrator for OpenTask run {run_id}.\n"
-            f"Workspace root: {self.project_root}\n"
+            f"Workspace root: {self.execution_root}\n"
             f"Run directory: {run_dir}\n"
             f"On each tick, read {run_dir}/workflow.lock.md, {run_dir}/state.json, {run_dir}/refs.json, {run_dir}/control.jsonl, and {run_dir}/nodes/* artifacts.\n"
             f"Never repeat completed nodes. Advance only ready nodes, inspect running nodes, and express graph changes through mutation directives that OpenTask records in {run_dir}/events.jsonl.\n"
@@ -1479,7 +1488,7 @@ class OpenTaskService:
         run_dir = self._run_dir_rel(state.run_id)
         sections = [
             f"You are executing OpenTask node {node.id} for run {state.run_id}.",
-            f"Workspace root: {self.project_root}",
+            f"Workspace root: {self.execution_root}",
             f"Run directory: {run_dir}",
             f"Workflow snapshot: {run_dir}/workflow.lock.md",
             f"Run state projection: {run_dir}/state.json",

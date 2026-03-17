@@ -20,7 +20,7 @@ OpenTask 围绕一个简单分工构建：
 
 即使 OpenTask 的后端或前端关闭，工作流也应该继续运行。共享真源是一个 registry 目录，其中包含版本化工作流和 `runs/` 下的运行目录。
 
-对真实 run 来说，这个 registry root 应该是稳定的 OpenClaw workspace，或者配置好的 `OPENTASK_REGISTRY_ROOT`，而不是一次性的临时目录。
+对真实 run 来说，这个 registry root 应该是稳定的 OpenClaw workspace，或者配置好的 `OPENTASK_REGISTRY_ROOT`，而不是一次性的临时目录。运行时 prompt 和 subagent handoff 里的 `Workspace root` 也应当指向这个目录，这样相对的 `workflows/...`、`runs/...` 路径才能和 OpenClaw 的真实执行目录保持一致。
 
 ## 提供的能力
 

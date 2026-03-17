@@ -18,6 +18,8 @@ Read these files in order before you plan or make any non-read tool call:
 3. [references/operations.md](./references/operations.md)
 
 Do not call `sessions_list`, write files, spawn a child, request driver review, or touch cron until all three references have been read in this order.
+Treat `sessions_list` as a non-read tool call even when you are only using it for discovery. If it happens before `references/operations.md` is read, the startup attempt is invalid and must be restarted before you write or dispatch anything.
+The only valid recovery from that mistake is: stop the current bootstrap, delete or repair any partial run/workflow artifacts created by that invalid attempt, then restart from step 1. Do not continue the same bootstrap by reading `operations.md` later.
 
 For a real run, the startup action order should be:
 
@@ -29,6 +31,10 @@ For a real run, the startup action order should be:
 6. only then resolve the registry root
 7. only then create or bind the run
 8. only then begin task execution
+
+For each new user request that invokes `opentask`, re-establish this ordered startup sequence for that run attempt. Do not assume an earlier read from an older turn still makes the current bootstrap valid.
+
+Once you start run scaffolding, finish it in the same execution pass. Do not stop after writing only `workflows/*.task.md` or only node directories. A valid bootstrap must leave behind `workflow.lock.md`, `state.json`, `refs.json`, `events.jsonl`, `control.jsonl`, node directories, and canonical node-local working-memory files for every eligible node.
 
 ## Installation Assumption
 
@@ -43,6 +49,7 @@ If you cannot read this file or the linked references from the current session, 
 - Subagents execute scoped work. They do not own the global workflow state.
 - OpenTask UI and backend are optional control surfaces for humans. The agent must be able to operate using only OpenClaw native tools plus the file protocol in this skill.
 - The registry root for a real run is the stable OpenClaw workspace or configured `OPENTASK_REGISTRY_ROOT`. Do not create a fresh temporary repo or use the shared-skill install directory as the registry root for a real user task unless the operator explicitly asked for an isolated skill test.
+- In runtime prompts and child handoffs, `Workspace root` means the registry root. Relative `runs/...` and `workflows/...` paths are resolved from that root, not from the OpenTask source repo.
 
 ## Keep These Rules
 
@@ -58,6 +65,7 @@ If you cannot read this file or the linked references from the current session, 
 - Leave node outputs as `report.md` and `result.json`.
 - For complex execution nodes, keep node-local working memory in `runs/<runId>/nodes/<nodeId>/plan.md`, `findings.md`, and `progress.md`; subagent handoffs belong in `handoff.md`.
 - During run scaffolding, create `workflow.lock.md`, `state.json`, `refs.json`, `events.jsonl`, `control.jsonl`, node directories, canonical working-memory files, and complete initial node metadata before substantial execution begins.
+- A partially created run directory is still a protocol failure. If you notice a run with only `nodes/` or only a source workflow file, repair the missing scaffold files before any further planning, research, user messaging, or dispatch.
 - Do not dispatch the first node, append `node.started`, or request driver review until bootstrap is complete. If scaffolding is interrupted, repair the missing files first and only then continue execution.
 - Internal cron turns are orchestration-only. They must not use user-visible announce delivery. Send user-facing updates only through explicit progress messages at meaningful milestones.
 - Do not create extra root-level or sidecar planning-memory files such as `task_plan.md`, `findings.md`, or `progress.md` unless the current assignment explicitly requires them. Use the workflow/run registry plus canonical node-local memory files instead.

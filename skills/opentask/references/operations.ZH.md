@@ -6,6 +6,8 @@
 
 对真实 run 来说，在第一次执行非读取型工具调用之前，除了 `orchestrator.ZH.md` 和 `registry.ZH.md` 外，也要先读完本文件。
 session 发现必须发生在这次读取之后。如果你在读 `operations.ZH.md` 之前就已经调用过 `sessions_list`，应把这次启动视为无效并重新按正确顺序启动 bootstrap。
+出现这种情况后，不要继续沿用半初始化的 run；必须先中止并重启启动序列。
+如果这次无效启动已经为当前尝试创建了新的 `workflows/*.task.md` 或 `runs/<runId>/` 半成品，那么重启前必须先删除或修复这些残留。不要通过“晚点再读 `operations.ZH.md`”继续同一条 bootstrap。
 
 ## 1. 文件系统操作
 
@@ -20,12 +22,14 @@ session 发现必须发生在这次读取之后。如果你在读 `operations.ZH
 - 写 `nodes/<nodeId>/report.md` 和 `result.json`
 
 对真实用户 workflow，这些文件必须写到稳定的 registry root 下。除非操作者明确要求做隔离 skill 测试，否则不要把 run 启动在一次性的临时 repo 里。
+把 registry root 当作运行时工作目录。`cwd`、`Workspace root` 以及 `runs/<runId>/...`、`workflows/...` 这类相对路径都应该相对于这个根目录解析；除非 OpenTask 源码 repo 本身就是当前 registry root，否则不要把它当作运行目录。
 
 初始化 run scaffold 时就创建 `control.jsonl`；如果还没有任何显式动作，就把它创建成零字节空文件。不要往这个文件里写占位注释或普通说明文字。
 
 创建 `workflow.lock.md` 时，要保留源工作流的 canonical YAML frontmatter 结构。不要把它改写成临时的纯文字摘要。
 版本化源 workflow 必须保持可复用：不要把 run-local 的 registry 路径、具体 `runId` 或瞬时 run 状态写进 `workflows/*.task.md`。
 如果 bootstrap 中途被打断，先继续补齐 scaffolding，再去派发节点、追加 `node.started` 或请求 driver review。
+不要只创建 `workflows/*.task.md`，也不要只创建 `runs/<runId>/nodes/` 就停下；这种状态仍然属于无效 bootstrap。
 
 ## 2. Session 发现
 
@@ -38,6 +42,7 @@ session 发现必须发生在这次读取之后。如果你在读 `operations.ZH
 在写 `state.json` 和 `refs.json` 之前先完成这一步。不要猜 `sourceSessionKey`、`rootSessionKey` 或 `deliveryContext`。
 在决定 `workflows/` 和 `runs/` 写到哪里之前，也要先解析或确认真实的 agent workspace 根目录。
 在 run 创建或绑定完成之前，不要开始任何实质性任务工作。尤其不要在 run 存在之前就启动 `sessions_spawn`、配置 cron、在 bootstrap scaffolding 之外写交付物产物，或发送里程碑/结果消息。
+如果是在同一个对话里对一次无效启动做重试，也要为新的尝试重新按顺序读取启动文件，不要假设上一轮读取还算数。
 
 ## 3. 创建 Subagent
 
@@ -55,6 +60,7 @@ child prompt 应包含：
 - 除非明确要求，否则不要直接向用户播报
 
 在 spawn 前，先确保节点目录里已经有规范的 `plan.md`、`findings.md`、`progress.md` 和 `handoff.md`。
+spawn child 时，把 `cwd` 设为 registry root，这样 run-local 的 `runs/<runId>/...` 路径才能正确解析。
 
 ## 4. 获取 Child 结果
 
