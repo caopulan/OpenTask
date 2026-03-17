@@ -4,6 +4,9 @@
 
 Use native OpenClaw tools and file edits. Do not assume the OpenTask backend or CLI is available.
 
+Before the first non-read tool call for a real run, read this file in addition to `orchestrator.md` and `registry.md`.
+Session discovery comes after this read. If you already called `sessions_list` before reading `operations.md`, treat that attempt as invalid startup and restart the bootstrap sequence cleanly.
+
 ## 1. Filesystem Work
 
 Use normal file tools to:
@@ -16,9 +19,13 @@ Use normal file tools to:
 - write `nodes/<nodeId>/handoff.md` for subagent nodes
 - write `nodes/<nodeId>/report.md` and `result.json`
 
+For a real user workflow, write these files under the stable registry root. Do not bootstrap the run inside a throwaway temporary repo unless the operator explicitly requested an isolated skill test.
+
 When bootstrapping a run, create `control.jsonl` immediately as an empty file unless explicit control actions already exist. Do not write placeholder comments or prose into that file.
 
 When creating `workflow.lock.md`, preserve the canonical YAML frontmatter workflow shape from the source workflow. Do not replace it with an ad hoc prose summary.
+Keep the versioned source workflow reusable: do not write run-local registry paths, concrete `runId` values, or transient run status text into `workflows/*.task.md`.
+If bootstrap is interrupted, resume file creation and finish scaffolding before you dispatch a node, append `node.started`, or request driver review.
 
 ## 2. Session Discovery
 
@@ -29,6 +36,7 @@ Use `sessions_list` to resolve the current session entry and capture:
 - `deliveryContext`
 
 Do this before writing `state.json` or `refs.json`. Never guess `sourceSessionKey`, `rootSessionKey`, or `deliveryContext`.
+Also resolve or confirm the actual agent workspace root before choosing where `workflows/` and `runs/` will live.
 
 ## 3. Subagent Creation
 
@@ -45,6 +53,8 @@ The child prompt should include:
 - a rule to avoid global state mutation
 - a rule to suppress direct user-facing announce unless explicitly requested
 
+Before spawning, ensure the node directory already contains the canonical `plan.md`, `findings.md`, `progress.md`, and `handoff.md` files.
+
 ## 4. Child Result Collection
 
 Use `sessions_history` or equivalent session history reads when:
@@ -59,6 +69,12 @@ Use `sessions_history` or equivalent session history reads when:
 Use cron to keep the Orchestrator Session alive until the run is terminal.
 
 Cron should target the Orchestrator Session and use non-user delivery for internal ticks.
+
+When you create cron:
+
+- store the real cron id returned by the tool in both `state.json` and `refs.json`
+- avoid synthetic placeholder ids such as `cron-<runId>` unless that is the real tool return value
+- keep internal tick prompts out of automatic user-facing announce delivery
 
 When the run is terminal:
 
@@ -75,3 +91,12 @@ Use the native message send tool only for explicit user-visible updates:
 - final completion
 
 Do not send internal bookkeeping as user-facing chat.
+
+## 7. Event Hygiene
+
+Whenever you change node or run state:
+
+- update `state.json`
+- append the matching event to `events.jsonl`
+- keep timestamps monotonic
+- do not leave completed nodes without their matching lifecycle records

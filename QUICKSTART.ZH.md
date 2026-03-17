@@ -35,7 +35,7 @@ export OPENTASK_REGISTRY_ROOT=/path/to/opentask-registry
 export OPENTASK_GATEWAY_URL=ws://127.0.0.1:18789
 ```
 
-第一次本地使用时，直接把当前仓库目录当作 registry root 也可以。
+对真实 workflow 来说，这里应该是稳定的 OpenClaw workspace，或其他长期存在的共享目录。如果你希望 OpenTask 后端和前端看到同一批 run，就不要依赖一次性的临时目录。
 
 ## 4. 校验示例工作流
 
@@ -49,16 +49,17 @@ uv run opentask workflow validate workflows/research-demo.task.md
 
 1. 使用 [skills/opentask/SKILL.ZH.md](skills/opentask/SKILL.ZH.md)
 2. 要求 agent 把当前对话当作 root orchestrator session
-3. 要求它在 `workflows/` 下创建或校验工作流
-4. 要求它把 run 绑定到当前 session 并开始执行
+3. 要求它在写文件前先解析当前 session 和 registry root
+4. 要求它在 `workflows/` 下创建或校验工作流
+5. 要求它把 run 绑定到当前 session 并开始执行
 
 示例提示词：
 
 ```text
-对这个对话使用 opentask skill。把当前 session 作为 root orchestrator，创建或校验 workflow，把 run 绑定到当前 session，并持续执行直到完成。
+对这个对话使用 opentask skill。先解析 registry root 和当前 session，把当前 session 作为 root orchestrator，创建或校验 workflow，把 run 绑定到当前 session，并持续执行直到完成。
 ```
 
-在实现层，这个 skill 会自己解析当前 `sessionKey`、`agentId` 和 `deliveryContext`，然后创建 run 并启动 cron。CLI 主要给 operator、测试和 UI 集成使用，不是面向最终用户的主入口。
+在实现层，这个 skill 会先把 references 全部读完，解析当前 `sessionKey`、`agentId`、`deliveryContext` 和 registry root，先把 run scaffold 完整，再启动 cron 或派发执行。`workflows/` 下的源 workflow 必须保持可复用，不能塞进 run-local 元数据。CLI 主要给 operator、测试和 UI 集成使用，不是面向最终用户的主入口。
 
 ## 6. 查看 Registry
 
@@ -104,6 +105,7 @@ ls runs/<runId>
 - 通过 `control.jsonl` 追加或解释控制意图
 - 在需要时更新 workflow 或 run 文件
 - 通过 OpenClaw 工具修改 cron
+- 保持内部 tick 对用户不可见
 - 只在合适的时候发送显式的用户可见消息
 
 ## 8. Operator 等价命令

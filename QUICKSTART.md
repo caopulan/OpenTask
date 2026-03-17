@@ -35,7 +35,7 @@ export OPENTASK_REGISTRY_ROOT=/path/to/opentask-registry
 export OPENTASK_GATEWAY_URL=ws://127.0.0.1:18789
 ```
 
-For a first local setup, using this repository root is acceptable.
+For a real workflow, this should be the stable OpenClaw workspace or another long-lived shared directory. Do not rely on a throwaway temporary directory if you expect the OpenTask backend and UI to see the same runs.
 
 ## 4. Validate the Sample Workflow
 
@@ -49,16 +49,17 @@ In the OpenClaw conversation where you want the long-running task to live:
 
 1. Use the OpenTask skill at [skills/opentask/SKILL.md](skills/opentask/SKILL.md).
 2. Ask the agent to treat the current conversation as the root orchestrator session.
-3. Ask it to create or validate the workflow under `workflows/`.
-4. Ask it to bind a run to the current session and start execution.
+3. Ask it to resolve the current session and registry root before writing files.
+4. Ask it to create or validate the workflow under `workflows/`.
+5. Ask it to bind a run to the current session and start execution.
 
 Example prompt:
 
 ```text
-Use the opentask skill for this conversation. Treat this session as the root orchestrator, create or validate the workflow, bind a run to this session, and keep it running until completion.
+Use the opentask skill for this conversation. Resolve the registry root and current session, treat this session as the root orchestrator, create or validate the workflow, bind a run to this session, and keep it running until completion.
 ```
 
-Under the hood, the skill should resolve the current `sessionKey`, `agentId`, and `deliveryContext`, then create the run and start cron. The CLI exists for operators and tests, not as the primary user-facing path.
+Under the hood, the skill should read all of its references first, resolve the current `sessionKey`, `agentId`, `deliveryContext`, and registry root, scaffold the run completely, and only then start cron or dispatch execution. The versioned source workflow under `workflows/` should remain reusable rather than carrying run-local metadata. The CLI exists for operators and tests, not as the primary user-facing path.
 
 ## 6. Inspect the Registry
 
@@ -104,6 +105,7 @@ The skill should translate those requests into native OpenClaw actions:
 - append or interpret control intent through `control.jsonl`
 - update workflow or run files when needed
 - patch cron through OpenClaw tools
+- keep internal tick delivery non-user-visible
 - send explicit user-visible messages only when appropriate
 
 ## 8. Operator Equivalents

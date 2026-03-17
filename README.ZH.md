@@ -20,6 +20,8 @@ OpenTask 围绕一个简单分工构建：
 
 即使 OpenTask 的后端或前端关闭，工作流也应该继续运行。共享真源是一个 registry 目录，其中包含版本化工作流和 `runs/` 下的运行目录。
 
+对真实 run 来说，这个 registry root 应该是稳定的 OpenClaw workspace，或者配置好的 `OPENTASK_REGISTRY_ROOT`，而不是一次性的临时目录。
+
 ## 提供的能力
 
 - 一套 workflow、run、refs、event、control、节点级 working memory 和 node output 的 registry 契约
@@ -115,7 +117,7 @@ OpenTask 会自动复用 `~/.openclaw/identity/` 下的本机 OpenClaw device au
 
 1. 克隆这个仓库并安装依赖。
 2. 把 [skills/opentask](skills/opentask) 复制或软链接到 OpenClaw 的 shared skills 目录下，并命名为 `opentask`。
-3. 把 `OPENTASK_REGISTRY_ROOT` 设成你希望 OpenTask 管理的 registry 根目录。
+3. 把 `OPENTASK_REGISTRY_ROOT` 设成你希望 OpenTask 管理的稳定 registry 根目录，或者确保当前 OpenClaw agent 的 workspace 本身就是你要用的 registry root。
 4. 在目标 OpenClaw 对话里使用已经安装好的 `opentask` skill。
 
 如果 agent 读不到 [skills/opentask/SKILL.ZH.md](skills/opentask/SKILL.ZH.md)，那就说明它还没有被正确安装到 OpenClaw 里。
@@ -126,9 +128,9 @@ OpenTask 会自动复用 `~/.openclaw/identity/` 下的本机 OpenClaw device au
 
 1. 用户在当前 Discord 或频道对话中提出一个需要长期运行的任务。
 2. OpenClaw agent 使用 [skills/opentask/SKILL.ZH.md](skills/opentask/SKILL.ZH.md)。
-3. Agent 解析当前 `sessionKey` 和 `deliveryContext`。
-4. Agent 在 `workflows/` 下创建或校验工作流文件。
-5. Agent 通过 registry 协议为当前 session 创建或绑定 run；在需要确定性 helper command 时，也可以借助 `opentask` CLI 或 core library。
+3. Agent 先解析当前 `sessionKey`、`deliveryContext` 和 registry root。
+4. Agent 在 `workflows/` 下创建或校验可复用的工作流文件。这个源 workflow 必须保持可复用，不能写入具体 registry 路径、`runId` 或瞬时状态说明等 run-local 元数据。
+5. Agent 通过 registry 协议为当前 session 创建或绑定 run，先完整 scaffold 规范的节点 working memory 和生命周期记录，然后再进入执行；在需要确定性 helper command 时，也可以借助 `opentask` CLI 或 core library。
 6. 后续由 OpenClaw 的 cron 和 subagent 持续推进。
 
 手工等价命令：
@@ -219,7 +221,7 @@ UI 是控制面，不是主要起任务入口。它更适合：
 
 ## 当前限制
 
-- 推荐启动路径依赖 OpenClaw agent 在调用 CLI 之前先解析当前 session 和 delivery context。
+- 推荐启动路径依赖 OpenClaw agent 在开始写 run 文件前先解析当前 session、delivery context 和 registry root。
 - Registry 锁是本地文件系统锁，不是分布式锁。
 - 前端故意保持 read-mostly，不提供自由编辑 DAG。
 - 仓库里仍保留 API debug 入口，因为它对运维和测试很有用。

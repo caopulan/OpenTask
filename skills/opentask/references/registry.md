@@ -4,6 +4,12 @@
 
 This file defines the files the Orchestrator Session must create and maintain.
 
+The registry root for a real run must be stable and shared:
+
+- Prefer `OPENTASK_REGISTRY_ROOT` when configured.
+- Otherwise use the current OpenClaw agent workspace root.
+- Do not silently create a new temporary repo for a real user run.
+
 ## 1. File Layout
 
 ```text
@@ -36,9 +42,17 @@ The versioned workflow under `workflows/*.task.md` should stay reusable across r
 For workflow node prompts:
 
 - describe task scope, dependencies, and expected deliverables
+- keep `defaults.agentId` aligned with the real agent that owns the run
 - do not hard-code a specific `runId`
 - do not hard-code concrete `runs/<runId>/...` paths in the source workflow
 - add concrete run-local paths later in `workflow.lock.md` or another run-local brief used at dispatch time
+
+The Markdown body of the versioned source workflow may contain durable task overview sections, but it must not contain run-local metadata such as:
+
+- `Run Information`
+- a concrete registry path
+- a concrete `runId`
+- transient status text like `Created, awaiting execution`
 
 Required frontmatter fields:
 
@@ -130,12 +144,14 @@ Do not replace the frontmatter workflow with an ad hoc summary format such as:
 - prose-only node lists without canonical frontmatter fields
 
 If the source workflow already has valid frontmatter, copy that structure into `workflow.lock.md` and only specialize it for the current run.
+Put run-local metadata and freeze notes in `workflow.lock.md`, not back into the source workflow file.
 
 ## 4. state.json
 
 The Orchestrator Session must keep `state.json` current.
 
 `sourceSessionKey`, `sourceAgentId`, `deliveryContext`, and `rootSessionKey` must come from actual session discovery for the current run. Do not guess these values and do not invent placeholders such as `webchat` when the session was not resolved that way.
+`cronJobId` must be the actual live cron job identifier returned by OpenClaw, not a guessed or synthetic name.
 
 Minimum fields:
 
@@ -174,6 +190,7 @@ Each node in `nodes` should track:
 - `completedAt`
 
 `artifactPaths` should list the canonical artifact paths expected for that node, even before the files exist. Do not leave `artifactPaths` empty only because a node is still `pending` or `ready`.
+Keep `artifactPaths` synchronized with actual outputs. If the node writes `result.json`, include it there.
 `workingMemory` should point to canonical node-local execution files when the node kind supports them. For `session_turn`, `subagent`, and `summary` nodes, use `plan.md`, `findings.md`, and `progress.md`. For `subagent`, also expose `handoff.md`.
 
 ## 5. refs.json
@@ -181,6 +198,7 @@ Each node in `nodes` should track:
 `refs.json` stores execution bindings.
 
 The binding fields in `refs.json` must match the same discovered live session metadata used in `state.json`. Never fabricate or default them without resolving the current session first.
+The cron binding fields in `refs.json` must also match the actual cron object returned by OpenClaw.
 
 Minimum fields:
 
@@ -228,12 +246,17 @@ Common events:
 - `node.added`
 - `node.rewired`
 - `run.completed`
+- `run.failed`
+- `run.paused`
+- `run.resumed`
 
 For a normal node lifecycle, keep both event order and timestamps consistent with state transitions:
 
 - `node.ready` before `node.started`
 - `node.started` before `node.completed` or `node.failed`
 - when a node is added by mutation, write the mutation event before any readiness or start event for that node
+
+Do not skip lifecycle events for nodes that finish quickly. If `state.json` shows a node completed, `events.jsonl` should still contain the corresponding readiness, start, and completion records unless that node was explicitly skipped.
 
 ## 7. control.jsonl
 
@@ -291,6 +314,9 @@ These remain the canonical outcome files:
   "payload": {}
 }
 ```
+
+If a node kind supports node-local working memory, the orchestrator should create those files during run scaffolding even before the node starts. Zero-byte or brief placeholder content is acceptable until the node begins real work.
+Run scaffolding is not complete until those canonical files exist. Do not dispatch the first node, append `node.started`, or request driver review before that bootstrap check passes.
 
 ## 9. Edit Rules
 

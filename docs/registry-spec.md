@@ -4,6 +4,8 @@
 
 OpenTask uses a registry directory as the single source of truth. OpenClaw skills, the `opentask` CLI, the OpenTask backend, and the web UI all read or write this registry.
 
+For real OpenClaw runs, this registry root should be a stable shared workspace such as the configured `OPENTASK_REGISTRY_ROOT` or the current agent workspace root. A temporary sandbox root is appropriate only for explicit skill validation.
+
 ## Layout
 
 ```text
@@ -30,6 +32,8 @@ OpenTask uses a registry directory as the single source of truth. OpenClaw skill
 ## Workflow Definition
 
 `workflows/*.task.md` uses Markdown with YAML frontmatter.
+
+The source workflow must remain reusable across runs. Do not hard-code a specific `runId`, `runs/<runId>/...` path, stale agent/session binding, or run-local metadata such as `Run Information`, concrete registry paths, or transient execution status into the versioned source workflow.
 
 Required frontmatter fields:
 
@@ -86,6 +90,8 @@ Each node may also expose `workingMemory` with canonical paths for:
 - `progress`
 - `handoff` for subagent nodes
 
+`sourceSessionKey`, `rootSessionKey`, `sourceAgentId`, `deliveryContext`, and `cronJobId` should reflect the actual live OpenClaw bindings discovered for that run.
+
 ## Run Refs
 
 `runs/<runId>/refs.json` tracks OpenClaw-specific runtime bindings.
@@ -115,6 +121,8 @@ Minimum event fields:
 - `nodeId` when applicable
 - `message`
 - `payload`
+
+Lifecycle events should be complete and ordered. If a node reaches `completed` in `state.json`, the audit trail should still contain the corresponding readiness, start, and completion transitions unless the node was explicitly skipped.
 
 ## Controls
 
@@ -162,3 +170,5 @@ Each node may write:
 - `childSessionKey`
 - `workingMemory`
 - `payload`
+
+The canonical node-local working-memory files should be scaffolded before execution begins for node kinds that support them, even if they start out empty. Bootstrap is incomplete until those files exist, and the orchestrator should not dispatch the first node or append `node.started` before that check passes.

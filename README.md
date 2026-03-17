@@ -20,6 +20,8 @@ OpenTask is built around a simple split:
 
 The workflow must keep running even when the OpenTask backend or frontend is down. The shared source of truth is a registry directory containing versioned workflows and run folders under `runs/`.
 
+For real runs, that registry root should be the stable OpenClaw workspace or the configured `OPENTASK_REGISTRY_ROOT`, not a throwaway temp directory.
+
 ## What It Ships
 
 - A registry contract for workflows, runs, refs, events, controls, node-local working memory, and node outputs
@@ -115,7 +117,7 @@ Install the OpenTask skill into the shared skills directory used by your OpenCla
 
 1. Clone this repository and install dependencies.
 2. Copy or symlink [skills/opentask](skills/opentask) into the OpenClaw shared skills directory as `opentask`.
-3. Set `OPENTASK_REGISTRY_ROOT` to the registry root you want OpenTask to manage.
+3. Set `OPENTASK_REGISTRY_ROOT` to the stable registry root you want OpenTask to manage, or ensure the OpenClaw agent workspace itself is the intended registry root.
 4. In the target OpenClaw conversation, use the installed `opentask` skill.
 
 If the agent cannot read [skills/opentask/SKILL.md](skills/opentask/SKILL.md), it is not installed correctly for OpenClaw yet.
@@ -126,9 +128,9 @@ The primary path is OpenClaw-native:
 
 1. The user asks for a long-running task in the current Discord or channel conversation.
 2. The OpenClaw agent uses [skills/opentask/SKILL.md](skills/opentask/SKILL.md).
-3. The agent resolves the current `sessionKey` and `deliveryContext`.
-4. The agent creates or validates a workflow file under `workflows/`.
-5. The agent creates or binds a run for that session using the registry protocol, optionally through the `opentask` CLI or core library when deterministic helper commands are useful.
+3. The agent resolves the current `sessionKey`, `deliveryContext`, and registry root.
+4. The agent creates or validates a reusable workflow file under `workflows/`. That source workflow should stay reusable and must not contain run-local metadata like concrete registry paths, `runId`, or transient status notes.
+5. The agent creates or binds a run for that session using the registry protocol, finishes scaffolding canonical node memory and lifecycle records, and only then begins execution. It may optionally use the `opentask` CLI or core library when deterministic helper commands are useful.
 6. OpenClaw cron and subagents continue execution from there.
 
 Manual equivalent:
@@ -219,7 +221,7 @@ Public endpoints:
 
 ## Current Limitations
 
-- The preferred start path assumes the OpenClaw agent can resolve the current session and delivery context before calling the CLI.
+- The preferred start path assumes the OpenClaw agent can resolve the current session, delivery context, and registry root before it starts writing run files.
 - Registry locking is local filesystem locking, not distributed locking.
 - The frontend is intentionally read-mostly and does not offer free-form DAG editing.
 - This repository still ships API debug entrypoints because they are useful for operators and tests.

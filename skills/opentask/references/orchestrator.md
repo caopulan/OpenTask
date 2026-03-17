@@ -4,6 +4,29 @@
 
 This file defines what the Orchestrator Session must do from start to finish.
 
+## 0. Startup Invariants
+
+Before you write any workflow or run file, or call any non-read OpenClaw tool:
+
+1. Read `SKILL.md`, this file, `registry.md`, and `operations.md`.
+2. Resolve the registry root.
+3. Resolve the current live session metadata.
+
+Do not call `sessions_list`, `sessions_spawn`, cron tools, or message-send tools until those reads are complete.
+If `sessions_list` or any other non-read OpenClaw tool appears before `operations.md` is read, treat that startup attempt as protocol-invalid and restart the startup sequence cleanly before writing or dispatching anything.
+
+Registry root rules:
+
+- Prefer `OPENTASK_REGISTRY_ROOT` when it is configured.
+- Otherwise use the current OpenClaw agent workspace root.
+- For a real user workflow, do not create a fresh temporary repo and do not use the shared-skill install directory as the registry root.
+- Only use a temporary test root when the operator explicitly asks for isolated skill validation.
+
+Session metadata rules:
+
+- Resolve `sourceSessionKey`, `rootSessionKey`, `sourceAgentId`, and `deliveryContext` from the current live session before writing `state.json` or `refs.json`.
+- If those values cannot be resolved reliably, stop and ask the operator to fix the environment instead of guessing.
+
 ## 1. Role Definitions
 
 ### Orchestrator Session
@@ -92,9 +115,11 @@ Treat the versioned workflow under `workflows/*.task.md` as reusable definition,
 In the source workflow:
 
 - keep prompts scoped to the task and expected deliverable
+- keep `defaults.agentId` aligned with the actual agent expected to own the run
 - do not hard-code a concrete `runId`
 - do not hard-code `runs/<runId>/...` paths
 - do not hard-code session ids or child session ids
+- do not add run-local metadata sections in the Markdown body such as `Run Information`, registry path blocks, concrete run status, or other transient execution notes
 
 Add concrete run paths, node ids, dependency artifact locations, and write targets later in a run-local dispatch brief, node-local handoff file, or the frozen `workflow.lock.md` created for that run.
 
@@ -133,15 +158,20 @@ When the workflow is ready:
 1. Choose a `runId`.
 2. Copy the workflow into `runs/<runId>/workflow.lock.md`.
 3. Create `state.json`, `refs.json`, `events.jsonl`, and `control.jsonl`.
-4. Record the current session as:
+4. Create each node directory and canonical node-local working-memory files before dispatch.
+5. Fill `artifactPaths` and `workingMemory` for every eligible node up front.
+6. Record the current session as:
    - `sourceSessionKey`
    - `rootSessionKey`
    - `sourceAgentId`
    - `deliveryContext`
-5. Mark entry nodes as `ready`.
-6. Append `run.created`.
+7. Mark entry nodes as `ready`.
+8. Append `run.created`.
+9. Append a `node.ready` event for every entry node.
+10. Verify that every canonical node-local working-memory file exists before dispatching anything.
 
 Create the run before you start long-form research or delegated execution. If you are already spending significant time gathering sources, your workflow should normally already exist and that work should be happening inside the appropriate node.
+If run bootstrap was interrupted, resume and finish scaffolding before you append `node.started`, request driver review, or dispatch a child.
 
 ## 8. Execution Loop
 
@@ -154,6 +184,14 @@ On each orchestration pass:
 5. Update state and events. Keep event timestamps monotonic, and never write `node.started` before the matching `node.ready`.
 6. Decide whether the user should be informed.
 7. Ensure cron will wake the Orchestrator Session again if the run is not terminal.
+
+Every node transition must be reflected in both `state.json` and `events.jsonl`.
+
+Do not skip lifecycle events for `session_turn`, `summary`, `wait`, or `approval` nodes. A completed node should normally have a complete audit chain such as:
+
+- `node.ready`
+- `node.started`
+- `node.completed` or `node.failed`
 
 ## 9. Dispatch Rules
 
@@ -169,6 +207,13 @@ The dispatched execution brief must tell the executor:
 - which files to write
 
 The reusable source workflow prompt may stay generic. Put concrete `runs/<runId>/...` paths into the dispatch brief or another run-local handoff, not into the versioned workflow definition.
+
+Before dispatching a `session_turn` or `summary` node:
+
+- verify that bootstrap is complete and the node-local working-memory files exist
+- append `node.started`
+- set the node status to `running`
+- update `updatedAt`
 
 ### subagent Node
 
@@ -198,6 +243,12 @@ Record in `refs.json`:
 
 Append `node.started`.
 
+When spawning a child, the parent should also:
+
+- write `handoff.md`
+- precreate `plan.md`, `findings.md`, and `progress.md`
+- record the actual parent session key used for the dispatch
+
 ## 10. After a Subagent Returns
 
 When a child finishes:
@@ -210,6 +261,12 @@ When a child finishes:
 6. Append the matching event.
 7. Recompute which downstream nodes become `ready`.
 8. Decide whether to add, retry, skip, or rewire nodes.
+
+When a child returns successfully:
+
+- keep `artifactPaths` consistent with the files that now exist
+- if `result.json` exists, list it in `artifactPaths`
+- write `node.ready` for every downstream node that just became runnable
 
 Only the Orchestrator Session may mutate the global workflow or run state after a child finishes.
 
@@ -258,6 +315,8 @@ Send a user-visible message only in these cases:
 - the workflow completes
 
 Do not message the user for every internal tick, every bookkeeping change, or every child launch.
+
+Internal cron orchestration should not rely on user-visible announce delivery. Use cron to wake the orchestrator quietly, then send an explicit progress message only when one of the cases above applies.
 
 ## 14. Completion
 
@@ -318,3 +377,5 @@ If reconstruction is needed, the parent should create `result.json` with:
 - `sessionKey`
 - `childSessionKey`
 - any raw payload worth preserving
+
+Also reconstruct or backfill canonical working-memory files when the node clearly performed multi-step work but did not leave the expected `plan.md`, `findings.md`, `progress.md`, or `handoff.md`.

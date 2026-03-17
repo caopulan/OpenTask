@@ -4,6 +4,8 @@
 
 OpenTask 使用一个 registry 目录作为唯一真源。OpenClaw 的 skill、`opentask` CLI、OpenTask 后端以及网页前端都围绕这套目录读写。
 
+对真实 OpenClaw run 来说，这个 registry root 应该是稳定共享的工作目录，比如配置好的 `OPENTASK_REGISTRY_ROOT` 或当前 agent 的 workspace 根目录。临时 sandbox root 只适用于显式 skill 验证。
+
 ## 目录结构
 
 ```text
@@ -30,6 +32,8 @@ OpenTask 使用一个 registry 目录作为唯一真源。OpenClaw 的 skill、`
 ## 工作流定义
 
 `workflows/*.task.md` 采用 Markdown + YAML frontmatter。
+
+源 workflow 必须保持可复用。不要在版本化源 workflow 里写死某个 `runId`、`runs/<runId>/...` 路径、过期的 agent/session 绑定，也不要写入 `Run Information`、具体 registry 路径或瞬时执行状态这类 run-local 元数据。
 
 frontmatter 必填字段：
 
@@ -86,6 +90,8 @@ frontmatter 必填字段：
 - `progress`
 - subagent 节点的 `handoff`
 
+`sourceSessionKey`、`rootSessionKey`、`sourceAgentId`、`deliveryContext` 和 `cronJobId` 都应反映该 run 实际解析得到的 OpenClaw live 绑定。
+
 ## Run Refs
 
 `runs/<runId>/refs.json` 记录 OpenClaw 侧的运行绑定关系。
@@ -115,6 +121,8 @@ frontmatter 必填字段：
 - `nodeId`（如适用）
 - `message`
 - `payload`
+
+生命周期事件必须完整且有序。如果 `state.json` 里某个节点已经 `completed`，那么除非它被显式 `skipped`，审计日志里也应该有对应的 `ready`、`started` 和 `completed`。
 
 ## Controls
 
@@ -162,3 +170,5 @@ frontmatter 必填字段：
 - `childSessionKey`
 - `workingMemory`
 - `payload`
+
+对支持节点级 working memory 的节点类型，应在执行开始前就 scaffold 这些规范文件，即使它们一开始是空的。只有当这些文件都存在时 bootstrap 才算完成；在此之前，orchestrator 不应派发第一个节点，也不应追加 `node.started`。

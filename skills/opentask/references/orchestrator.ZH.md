@@ -4,6 +4,29 @@
 
 这个文件定义了 Orchestrator Session 从开始到结束必须做什么。
 
+## 0. 启动前不变量
+
+在写任何 workflow 或 run 文件之前，或调用任何非读取型 OpenClaw 工具之前：
+
+1. 读完 `SKILL.md`、本文件、`registry.ZH.md` 和 `operations.ZH.md`
+2. 解析出 registry root
+3. 解析出当前 live session 元数据
+
+在这些读取完成之前，不要调用 `sessions_list`、`sessions_spawn`、cron 工具或消息发送工具。
+如果在读完 `operations.ZH.md` 之前就出现了 `sessions_list` 或任何其他非读取型 OpenClaw 工具调用，那么这次启动应视为协议无效；必须先把启动顺序重新走对，再去写文件或派发执行。
+
+registry root 规则：
+
+- 如果配置了 `OPENTASK_REGISTRY_ROOT`，优先使用它
+- 否则使用当前 OpenClaw agent 的 workspace 根目录
+- 对真实用户工作流，不要新建一个临时 repo，也不要把 shared skill 安装目录当作 registry root
+- 只有操作者明确要求做隔离 skill 验证时，才使用临时测试目录
+
+session 元数据规则：
+
+- 在写 `state.json` 或 `refs.json` 之前，必须从当前 live session 解析出 `sourceSessionKey`、`rootSessionKey`、`sourceAgentId` 和 `deliveryContext`
+- 如果这些值无法可靠解析，就停止并要求操作者修复环境，不要猜
+
 ## 1. 角色定义
 
 ### Orchestrator Session
@@ -92,9 +115,11 @@ Subagent Session 是通过 `sessions_spawn` 创建的子执行上下文。
 在源 workflow 里：
 
 - prompt 只写任务范围和期望交付物
+- `defaults.agentId` 要与实际拥有该 run 的 agent 一致
 - 不要写死具体 `runId`
 - 不要写死 `runs/<runId>/...` 路径
 - 不要写死 session id 或 child session id
+- 不要在 Markdown 正文里加入 `Run Information` 这类 run-local 元数据段落，也不要写 registry 路径、具体 run 状态等瞬时执行信息
 
 具体的 run 路径、node id、依赖产物位置和输出目标，应在 run 创建之后，通过 run-local dispatch brief、节点本地 handoff 文件，或该次 run 的 `workflow.lock.md` 来补充。
 
@@ -133,15 +158,20 @@ Subagent Session 是通过 `sessions_spawn` 创建的子执行上下文。
 1. 选择一个 `runId`
 2. 把工作流复制到 `runs/<runId>/workflow.lock.md`
 3. 创建 `state.json`、`refs.json`、`events.jsonl`、`control.jsonl`
-4. 把当前 session 记录为：
+4. 在派发前就创建每个节点目录和规范的节点级 working-memory 文件
+5. 预先填好所有合适节点的 `artifactPaths` 和 `workingMemory`
+6. 把当前 session 记录为：
    - `sourceSessionKey`
    - `rootSessionKey`
    - `sourceAgentId`
    - `deliveryContext`
-5. 把入口节点标成 `ready`
-6. 追加 `run.created`
+7. 把入口节点标成 `ready`
+8. 追加 `run.created`
+9. 为每个入口节点追加 `node.ready`
+10. 在派发任何节点之前，确认所有规范的节点级 working-memory 文件都已存在
 
 在开始长时间调研或 delegated execution 之前就应该先创建 run。如果你已经花了较多时间搜集资料，通常说明 workflow 早就该存在，而这些工作应该发生在对应节点内部。
+如果 run bootstrap 中途被打断，必须先恢复并完成 scaffolding，然后才能追加 `node.started`、请求 driver review 或派发 child。
 
 ## 8. 执行循环
 
@@ -154,6 +184,14 @@ Subagent Session 是通过 `sessions_spawn` 创建的子执行上下文。
 5. 更新状态和事件。事件时间戳必须单调递增，绝不能先写某个节点的 `node.started` 再写它的 `node.ready`
 6. 判断是否应该通知用户
 7. 如果 run 还没结束，确保 cron 还会再次唤醒 Orchestrator Session
+
+每一次节点状态迁移，都必须同时反映在 `state.json` 和 `events.jsonl` 里。
+
+不要跳过 `session_turn`、`summary`、`wait` 或 `approval` 节点的生命周期事件。一个正常完成的节点通常应该有完整审计链：
+
+- `node.ready`
+- `node.started`
+- `node.completed` 或 `node.failed`
 
 ## 9. 节点派发规则
 
@@ -169,6 +207,13 @@ Subagent Session 是通过 `sessions_spawn` 创建的子执行上下文。
 - 需要写出的文件
 
 可复用的源 workflow prompt 可以保持通用。具体的 `runs/<runId>/...` 路径应该写到 dispatch brief 或其他 run-local handoff 里，而不是写进版本化 workflow 定义本身。
+
+在派发 `session_turn` 或 `summary` 节点前：
+
+- 先确认 bootstrap 已完整，且该节点的 working-memory 文件都已存在
+- 先追加 `node.started`
+- 把节点状态设为 `running`
+- 更新 `updatedAt`
 
 ### subagent 节点
 
@@ -198,6 +243,12 @@ child task 必须包含：
 
 然后追加 `node.started`。
 
+spawn child 时，父 session 还应该：
+
+- 写出 `handoff.md`
+- 预创建 `plan.md`、`findings.md` 和 `progress.md`
+- 记录本次派发实际使用的父 session key
+
 ## 10. Subagent 返回后怎么办
 
 child 完成后：
@@ -210,6 +261,12 @@ child 完成后：
 6. 追加对应事件
 7. 重新计算哪些下游节点会变成 `ready`
 8. 决定是否需要增节点、重试、跳过或 rewiring
+
+当 child 成功返回时：
+
+- 让 `artifactPaths` 与实际已存在的文件保持一致
+- 如果存在 `result.json`，就把它列进 `artifactPaths`
+- 对每个刚刚变得可运行的下游节点，写一条 `node.ready`
 
 child 完成之后，只有 Orchestrator Session 可以修改全局工作流或 run 状态。
 
@@ -258,6 +315,8 @@ child 完成之后，只有 Orchestrator Session 可以修改全局工作流或 
 - 工作流结束
 
 不要因为每次内部 tick、每次记账动作、每次 child 启动都给用户发消息。
+
+内部 cron orchestration 不应依赖用户可见的 announce 投递。cron 应静默唤醒 orchestrator，只有在上面列出的场景里才通过显式 progress message 给用户发更新。
 
 ## 14. 完成条件
 
@@ -318,3 +377,5 @@ child 运行后，父 session 必须验证：
 - `sessionKey`
 - `childSessionKey`
 - 值得保留的原始 payload
+
+如果某个节点显然执行了多步工作，但没有留下期望的 `plan.md`、`findings.md`、`progress.md` 或 `handoff.md`，父 session 还应回填这些规范 working-memory 文件。
