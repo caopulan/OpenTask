@@ -37,6 +37,7 @@ session 发现必须发生在这次读取之后。如果你在读 `operations.ZH
 
 在写 `state.json` 和 `refs.json` 之前先完成这一步。不要猜 `sourceSessionKey`、`rootSessionKey` 或 `deliveryContext`。
 在决定 `workflows/` 和 `runs/` 写到哪里之前，也要先解析或确认真实的 agent workspace 根目录。
+在 run 创建或绑定完成之前，不要开始任何实质性任务工作。尤其不要在 run 存在之前就启动 `sessions_spawn`、配置 cron、在 bootstrap scaffolding 之外写交付物产物，或发送里程碑/结果消息。
 
 ## 3. 创建 Subagent
 

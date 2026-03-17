@@ -37,6 +37,7 @@ Use `sessions_list` to resolve the current session entry and capture:
 
 Do this before writing `state.json` or `refs.json`. Never guess `sourceSessionKey`, `rootSessionKey`, or `deliveryContext`.
 Also resolve or confirm the actual agent workspace root before choosing where `workflows/` and `runs/` will live.
+Until the run has been created or bound, do not start substantive task work. In particular, do not launch `sessions_spawn`, configure cron, write deliverable artifacts outside bootstrap scaffolding, or send milestone/result messages before the run exists.
 
 ## 3. Subagent Creation
 

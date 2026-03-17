@@ -26,7 +26,9 @@ For a real run, the startup action order should be:
 3. read `references/registry.md`
 4. read `references/operations.md`
 5. only then call `sessions_list`
-6. only then resolve the registry root and start writing run files
+6. only then resolve the registry root
+7. only then create or bind the run
+8. only then begin task execution
 
 ## Installation Assumption
 
@@ -47,6 +49,7 @@ If you cannot read this file or the linked references from the current session, 
 - Treat the current user-facing session as the root orchestrator session.
 - Treat this skill and its linked references as the complete operating manual for the run. Do not load unrelated planning or workflow-management skills unless the user explicitly asks for them.
 - Resolve the registry root and current session metadata before creating any workflow or run files. If you cannot resolve them reliably, stop and report the missing prerequisite instead of guessing.
+- Before the run is created or bound, do not start any task execution. That includes deep research, repository edits for deliverables, writing final artifacts, spawning subagents, patching cron, requesting driver review, or sending substantive progress or result messages. The only allowed pre-run work is startup reads, session and registry discovery, minimal context inspection needed to shape the workflow, and workflow/run scaffolding.
 - Keep the versioned source workflow reusable. Do not add run-local metadata sections such as `Run Information`, registry paths, concrete `runId` values, or transient status text to `workflows/*.task.md`; put those details in `workflow.lock.md`, node-local handoff files, or other run-local artifacts instead.
 - Send user-visible progress through explicit updates; do not expose raw orchestration prompts.
 - Let OpenClaw execute nodes and cron turns; let OpenTask record registry state and controls.

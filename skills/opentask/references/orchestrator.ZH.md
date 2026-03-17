@@ -14,6 +14,7 @@
 
 在这些读取完成之前，不要调用 `sessions_list`、`sessions_spawn`、cron 工具或消息发送工具。
 如果在读完 `operations.ZH.md` 之前就出现了 `sessions_list` 或任何其他非读取型 OpenClaw 工具调用，那么这次启动应视为协议无效；必须先把启动顺序重新走对，再去写文件或派发执行。
+在 run 创建或绑定完成之前，不要开始任何实质性任务执行。run 之前的阶段只允许做启动读取、registry/session 解析、用于确定工作流形状的最小发现，以及 scaffolding。
 
 registry root 规则：
 
@@ -77,7 +78,8 @@ Subagent Session 是通过 `sessions_spawn` 创建的子执行上下文。
 5. 创建 run 目录和初始状态。
 6. 开始执行。
 
-不要在 planning 阶段把完整调研任务先做完。Planning 只应收集足够定义工作流、依赖和执行分支的信息；更深入的调研应该放到 `gather-context`、执行节点或 delegated subagent 里，并且发生在 run 已经创建之后。
+不要在 planning 阶段就开始真正执行任务。Planning 只应收集足够定义工作流、依赖和执行分支的信息。
+在 run 存在之前，不要做实质性调研、不要修改项目交付物、不要写最终报告、不要创建 subagent、不要配置 cron，也不要发送阶段性结果或里程碑更新。这些工作应放到 `gather-context`、执行节点或 delegated subagent 中，并且发生在 run 创建或绑定之后。
 除非 assignment 明确要求，否则不要再加载其他 planning skill，也不要在 repo 根或旁路位置创建 `task_plan.md`、`findings.md`、`progress.md` 这类 planning memory 文件。OpenTask 的 workflow 文件、run registry 和规范的节点级 working-memory 文件才是规范工作记忆。
 
 ## 4. 什么时候要用 Crawl
@@ -170,7 +172,7 @@ Subagent Session 是通过 `sessions_spawn` 创建的子执行上下文。
 9. 为每个入口节点追加 `node.ready`
 10. 在派发任何节点之前，确认所有规范的节点级 working-memory 文件都已存在
 
-在开始长时间调研或 delegated execution 之前就应该先创建 run。如果你已经花了较多时间搜集资料，通常说明 workflow 早就该存在，而这些工作应该发生在对应节点内部。
+在开始任何实质执行之前，就应该先创建或绑定 run。如果你已经花了较多时间搜集资料、修改交付物或撰写结论，通常说明 workflow 早就该存在，而这些工作应该发生在对应节点内部。
 如果 run bootstrap 中途被打断，必须先恢复并完成 scaffolding，然后才能追加 `node.started`、请求 driver review 或派发 child。
 
 ## 8. 执行循环

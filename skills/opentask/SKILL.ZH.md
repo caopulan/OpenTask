@@ -21,7 +21,9 @@
 3. 读 `references/registry.ZH.md`
 4. 读 `references/operations.ZH.md`
 5. 只有在这之后才能调用 `sessions_list`
-6. 再去解析 registry root，并开始写 run 文件
+6. 再去解析 registry root
+7. 然后创建或绑定 run
+8. 只有在这之后才能开始任务执行
 
 ## 安装前提
 
@@ -42,6 +44,7 @@
 - 把当前面向用户的 session 当作 root orchestrator session。
 - 把本 skill 及其 references 当作本次 run 的完整操作手册。除非用户明确要求，否则不要再加载其他 planning 或 workflow-management skill。
 - 在创建任何 workflow 或 run 文件之前，先解析出 registry root 和当前 session 元数据。如果不能可靠解析，就停止并报告缺失的前提条件，不要猜。
+- 在 run 创建或绑定完成之前，不要开始任何任务执行。这包括深入调研、为交付物修改仓库、写最终产物、创建 subagent、修改 cron、请求 driver review，或发送实质性的进度/结果消息。run 之前唯一允许做的事情，是启动读取、session 和 registry 解析、为确定工作流形状所需的最小上下文检查，以及 workflow/run scaffolding。
 - 版本化源 workflow 必须保持可复用。不要在 `workflows/*.task.md` 中加入 `Run Information` 之类的 run-local 元数据段落，也不要写 registry 路径、具体 `runId` 或瞬时状态文字；这些内容应放到 `workflow.lock.md`、节点 handoff 或其他 run-local 产物里。
 - 用户可见进度必须通过显式更新发送，不要暴露原始 orchestration prompt。
 - 让 OpenClaw 执行节点和 cron，让 OpenTask 记录 registry 状态和 control。

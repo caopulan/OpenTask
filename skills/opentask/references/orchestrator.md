@@ -14,6 +14,7 @@ Before you write any workflow or run file, or call any non-read OpenClaw tool:
 
 Do not call `sessions_list`, `sessions_spawn`, cron tools, or message-send tools until those reads are complete.
 If `sessions_list` or any other non-read OpenClaw tool appears before `operations.md` is read, treat that startup attempt as protocol-invalid and restart the startup sequence cleanly before writing or dispatching anything.
+Before a run is created or bound, do not begin substantive task execution. The pre-run phase is only for startup reads, registry/session resolution, minimal workflow-shaping discovery, and scaffolding.
 
 Registry root rules:
 
@@ -77,7 +78,8 @@ Follow this order.
 5. Create the run folder and initial state.
 6. Start execution.
 
-Do not perform the full research task during planning. Planning should stop once you have enough information to define the workflow, dependencies, and execution branches. The deeper research belongs in `gather-context`, execution nodes, or delegated subagents after the run exists.
+Do not execute the real task during planning. Planning should stop once you have enough information to define the workflow, dependencies, and execution branches.
+Before the run exists, do not do substantive research, edit project deliverables, write final reports, spawn subagents, configure cron, or send milestone/result updates. That work belongs in `gather-context`, execution nodes, or delegated subagents after the run is created or bound.
 Do not load unrelated planning skills or create extra root-level planning-memory files such as `task_plan.md`, `findings.md`, or `progress.md` unless the assignment explicitly asks for them. The OpenTask workflow files, run registry, and canonical node-local memory files are the canonical working memory.
 
 ## 4. When To Use Crawl
@@ -170,7 +172,7 @@ When the workflow is ready:
 9. Append a `node.ready` event for every entry node.
 10. Verify that every canonical node-local working-memory file exists before dispatching anything.
 
-Create the run before you start long-form research or delegated execution. If you are already spending significant time gathering sources, your workflow should normally already exist and that work should be happening inside the appropriate node.
+Create or bind the run before you start any substantive execution work. If you are already spending significant time gathering sources, editing deliverables, or drafting conclusions, the workflow should normally already exist and that work should be happening inside the appropriate node.
 If run bootstrap was interrupted, resume and finish scaffolding before you append `node.started`, request driver review, or dispatch a child.
 
 ## 8. Execution Loop
