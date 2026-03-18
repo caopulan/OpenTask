@@ -219,6 +219,8 @@ class RunStore:
             if not resolved.exists() or not resolved.is_file() or not self._is_previewable_text_file(resolved):
                 continue
             content, format_name, truncated = self._read_document_preview(resolved)
+            if category == "working_memory" and self._is_placeholder_working_memory_document(node, path, content):
+                continue
             documents.append(
                 RunNodeDocument(
                     path=path,
@@ -266,18 +268,6 @@ class RunStore:
         node_dir.mkdir(parents=True, exist_ok=True)
         if node.working_memory is None:
             return
-        self._write_file_if_missing(
-            self._run_dir(run_id) / node.working_memory.plan,
-            self._default_node_plan(node),
-        )
-        self._write_file_if_missing(
-            self._run_dir(run_id) / node.working_memory.findings,
-            self._default_node_findings(node),
-        )
-        self._write_file_if_missing(
-            self._run_dir(run_id) / node.working_memory.progress,
-            self._default_node_progress(node),
-        )
         if node.working_memory.handoff:
             self._write_file_if_missing(
                 self._run_dir(run_id) / node.working_memory.handoff,
@@ -391,6 +381,19 @@ class RunStore:
         except UnicodeDecodeError:
             return False
         return True
+
+    def _is_placeholder_working_memory_document(self, node: NodeState, path: str, content: str) -> bool:
+        name = Path(path).name
+        if name == "findings.md":
+            return content == self._default_node_findings(node)
+        if name == "progress.md":
+            return content == self._default_node_progress(node)
+        if name != "plan.md":
+            return False
+        for status in ("pending", "ready", "running", "waiting", "completed", "failed", "skipped"):
+            if content == self._default_node_plan(node.model_copy(update={"status": status})):
+                return True
+        return False
 
     @staticmethod
     def _write_file_if_missing(path: Path, content: str) -> None:

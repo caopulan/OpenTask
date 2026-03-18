@@ -310,31 +310,6 @@ def working_memory_paths(node_id: str, kind: str) -> dict[str, str] | None:
     return payload
 
 
-def default_plan(node: dict[str, Any]) -> str:
-    return (
-        f"# {node['title']} plan\n\n"
-        f"- Node ID: `{node['id']}`\n"
-        f"- Kind: `{node['kind']}`\n"
-        f"- Status: `{node['status']}`\n\n"
-        "Use this file only if this node expands into multiple concrete steps.\n"
-        "Keep the plan scoped to this node; do not duplicate the global workflow here.\n"
-    )
-
-
-def default_findings(node: dict[str, Any]) -> str:
-    return (
-        f"# {node['title']} findings\n\n"
-        "Record node-local discoveries, source links, and intermediate conclusions here.\n"
-    )
-
-
-def default_progress(node: dict[str, Any]) -> str:
-    return (
-        f"# {node['title']} progress\n\n"
-        "Append concise node-local execution updates here when the node spans multiple steps.\n"
-    )
-
-
 def default_handoff(node: dict[str, Any]) -> str:
     return (
         f"# {node['title']} handoff\n\n"
@@ -506,9 +481,6 @@ def command_scaffold(args: argparse.Namespace) -> None:
         node_dir = run_dir / "nodes" / node_copy["id"]
         node_dir.mkdir(parents=True, exist_ok=True)
         if node_copy["workingMemory"] is not None:
-            ensure_file_if_missing(run_dir / node_copy["workingMemory"]["plan"], default_plan(node_copy))
-            ensure_file_if_missing(run_dir / node_copy["workingMemory"]["findings"], default_findings(node_copy))
-            ensure_file_if_missing(run_dir / node_copy["workingMemory"]["progress"], default_progress(node_copy))
             if node_copy["workingMemory"].get("handoff"):
                 ensure_file_if_missing(run_dir / node_copy["workingMemory"]["handoff"], default_handoff(node_copy))
         nodes.append(node_copy)
@@ -810,10 +782,9 @@ def command_validate(args: argparse.Namespace) -> None:
 
     for node in state["nodes"]:
         wm = node.get("workingMemory") or {}
-        for key in ("plan", "findings", "progress", "handoff"):
-            relative = wm.get(key)
-            if relative and not (run_dir / normalize_relative_path(relative)).exists():
-                issues.append(f"missing working memory file for {node['id']}: {relative}")
+        handoff = wm.get("handoff")
+        if handoff and not (run_dir / normalize_relative_path(handoff)).exists():
+            issues.append(f"missing handoff file for {node['id']}: {handoff}")
         lifecycle = per_node_events.get(node["id"], [])
         if node["status"] == "ready" and "node.ready" not in lifecycle:
             issues.append(f"node {node['id']} is ready in state but missing node.ready")

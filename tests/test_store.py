@@ -20,9 +20,6 @@ def test_run_store_creates_expected_files(tmp_path: Path) -> None:
     assert (run_dir / "refs.json").exists()
     assert (run_dir / "control.jsonl").exists()
     assert (run_dir / "nodes" / "execute-task").exists()
-    assert (run_dir / "nodes" / "execute-task" / "plan.md").exists()
-    assert (run_dir / "nodes" / "execute-task" / "findings.md").exists()
-    assert (run_dir / "nodes" / "execute-task" / "progress.md").exists()
     assert refs.driver_session_key.startswith("agent:opentask:session:workflow:")
     assert refs.driver_session_key.endswith(":root")
     assert state.planner_session_key.startswith("agent:opentask:session:workflow:")
@@ -64,12 +61,19 @@ def test_load_node_documents_reads_declared_text_files_only(tmp_path: Path) -> N
 
     documents = store.load_node_documents(state.run_id, "execute-task")
 
-    assert [document.label for document in documents[:5]] == [
-        "Report",
-        "Findings",
-        "Progress",
-        "Plan",
-        "Result",
-    ]
+    assert [document.label for document in documents] == ["Report", "Result"]
     assert next(document for document in documents if document.label == "Report").format == "markdown"
     assert next(document for document in documents if document.label == "Result").content.startswith("{\n  ")
+
+
+def test_load_node_documents_omits_placeholder_working_memory(tmp_path: Path) -> None:
+    store = RunStore(runtime_root=tmp_path / ".opentask")
+    workflow = build_starter_workflow("Placeholders", "Preview outputs")
+    state, _ = store.create_run(workflow)
+    node = state.nodes[0]
+
+    store.write_node_file(state.run_id, node.id, "plan.md", store._default_node_plan(node))
+    store.write_node_file(state.run_id, node.id, "findings.md", store._default_node_findings(node))
+    store.write_node_file(state.run_id, node.id, "progress.md", store._default_node_progress(node))
+
+    assert store.load_node_documents(state.run_id, node.id) == []

@@ -328,8 +328,8 @@ These remain the canonical outcome files:
 }
 ```
 
-If a node kind supports node-local working memory, the orchestrator should create those files during run scaffolding even before the node starts. Zero-byte or brief placeholder content is acceptable until the node begins real work.
-Run scaffolding is not complete until those canonical files exist. Do not dispatch the first node, append `node.started`, or request driver review before that bootstrap check passes.
+If a node kind supports node-local working memory, the orchestrator should declare those canonical paths in `workingMemory` during run scaffolding even before the node starts. Create `plan.md`, `findings.md`, and `progress.md` lazily when the node begins real multi-step work. For subagents, create `handoff.md` before spawn.
+Run scaffolding is complete once the helper-created run files, node directories, and canonical `workingMemory` metadata exist. Do not dispatch the first node, append `node.started`, or request driver review before that bootstrap check passes.
 
 ## 9. Edit Rules
 

@@ -128,7 +128,7 @@ The child prompt should include:
 - a rule to avoid global state mutation
 - a rule to suppress direct user-facing announce unless explicitly requested
 
-Before spawning, ensure the node directory already contains the canonical `plan.md`, `findings.md`, `progress.md`, and `handoff.md` files.
+Before spawning, ensure the node directory exists and `handoff.md` is written. Pass the canonical `plan.md`, `findings.md`, and `progress.md` paths to the child, but do not create placeholder files unless the node already needs multi-step notes.
 Spawn the child with `cwd` set to the registry root so the run-local `runs/<runId>/...` paths resolve correctly.
 Immediately after the spawn is accepted, call helper `bind` to record `childSessionKey` and any child `runId`.
 

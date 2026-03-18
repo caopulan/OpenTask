@@ -88,7 +88,8 @@ scaffold 之前唯一允许的写入只有：
 - 不要伪造或回填虚假的时间戳、session key、delivery 元数据、cron id 或生命周期状态。应使用真实发现到的值和真实写入时刻；如果某个生命周期事件已经存在，就不要再手工追加第二份同类记录。
 - 节点输出统一写成 `report.md` 和 `result.json`。
 - 对于复杂执行节点，把节点级工作记忆写到 `runs/<runId>/nodes/<nodeId>/plan.md`、`findings.md`、`progress.md`；subagent 的父子 handoff 写到 `handoff.md`。
-- 在 run scaffolding 阶段就创建 `workflow.lock.md`、`state.json`、`refs.json`、`events.jsonl`、`control.jsonl`、节点目录、规范 working-memory 文件，以及完整的初始节点元数据，然后再进入实质执行。
+- 不要预创建占位的 `plan.md`、`findings.md`、`progress.md`。只有当节点真的需要多步工作记录时才创建它们；对于 subagent，要在 spawn 前写好 `handoff.md`。
+- 在 run scaffolding 阶段就创建 `workflow.lock.md`、`state.json`、`refs.json`、`events.jsonl`、`control.jsonl`、节点目录、状态里的规范 working-memory 路径，以及完整的初始节点元数据，然后再进入实质执行。
 - 只创建出半截 run 目录也算协议失败。如果你发现某个 run 只有 `nodes/`，或者只有源 workflow 文件，没有完整 scaffold，就必须先修复缺失文件，再继续任何规划、调研、用户通知或节点派发。
 - 在 bootstrap 完成前，不要派发第一个节点，不要追加 `node.started`，也不要请求 driver review。如果 scaffolding 中途被打断，必须先补齐缺失文件，再继续执行。
 - 一旦某个节点已经被派发到专用 node session 或 child session，Orchestrator Session 就必须停止亲自做这个节点的实质任务。它可以继续做监控、写 registry、处理 control、审阅结果，但不能在 root session 里并行继续做同一份调研、浏览、写作或分析。

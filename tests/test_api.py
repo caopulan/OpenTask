@@ -225,10 +225,7 @@ async def test_api_omits_missing_node_document_files(tmp_path: Path) -> None:
         response = await client.get(f"/api/runs/{run_id}/nodes/execute-task/documents")
 
     assert response.status_code == 200
-    payload = response.json()
-    labels = {document["label"] for document in payload}
-    assert "Report" not in labels
-    assert labels == {"Plan", "Findings", "Progress"}
+    assert response.json() == []
 
 
 @pytest.mark.asyncio

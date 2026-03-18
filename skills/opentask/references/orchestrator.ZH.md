@@ -16,7 +16,7 @@
 如果在读完 `operations.ZH.md` 之前就出现了 `sessions_list` 或任何其他非读取型 OpenClaw 工具调用，那么这次启动应视为协议无效；必须先把启动顺序重新走对，再去写文件或派发执行。
 如果这次无效启动已经为当前尝试创建了半成品 workflow 或 run 产物，重启前必须先删除或修复它们。在同一条失败尝试里晚点再读 `operations.ZH.md`，并不能让原来的 bootstrap 重新合法。
 在 run 创建或绑定完成之前，不要开始任何实质性任务执行。run 之前的阶段只允许做启动读取、registry/session 解析、用于确定工作流形状的最小发现，以及 scaffolding。
-一旦开始做 scaffolding，就不要留下半截状态。创建 run 的这一轮里，也必须同时创建 `workflow.lock.md`、`state.json`、`refs.json`、`events.jsonl`、`control.jsonl`、节点目录和标准 node-local working-memory 文件。
+一旦开始做 scaffolding，就不要留下半截状态。创建 run 的这一轮里，也必须同时创建 `workflow.lock.md`、`state.json`、`refs.json`、`events.jsonl`、`control.jsonl`、节点目录和标准 node-local working-memory 元数据。
 一个新 `runs/<runId>/` 路径里的第一笔写入必须来自 helper `scaffold`。不要手工预建 run 目录、`workflow.lock.md` 或任何 runtime JSON/JSONL 文件。
 
 registry root 规则：
@@ -164,7 +164,7 @@ Subagent Session 是通过 `sessions_spawn` 创建的子执行上下文。
 1. 选择一个 `runId`
 2. 优先直接让 `skills/opentask/scripts/registry_helper.py scaffold` 读取源 workflow frontmatter。只有在工作流形状需要显式 helper override 时，才写临时 JSON bootstrap spec
 3. 如果这一轮 bootstrap 还没确认过 helper，可先运行 `python3 skills/opentask/scripts/registry_helper.py --help`
-4. 运行 helper `scaffold`，由它创建 `workflow.lock.md`、`state.json`、`refs.json`、`events.jsonl`、`control.jsonl`、节点目录和规范的节点级 working-memory 文件；这是 `runs/<runId>/` 下第一笔合法写入
+4. 运行 helper `scaffold`，由它创建 `workflow.lock.md`、`state.json`、`refs.json`、`events.jsonl`、`control.jsonl`、节点目录和规范的节点级 working-memory 元数据；这是 `runs/<runId>/` 下第一笔合法写入
 5. 通过 helper 管理的 scaffold，预先填好所有合适节点的 `artifactPaths` 和 `workingMemory`
 6. 把当前 session 记录为：
    - `sourceSessionKey`
@@ -220,7 +220,7 @@ Subagent Session 是通过 `sessions_spawn` 创建的子执行上下文。
 
 在派发 `session_turn` 或 `summary` 节点前：
 
-- 先确认 bootstrap 已完整，且该节点的 working-memory 文件都已存在
+- 先确认 bootstrap 已完整，且 state 里已经带有该节点的规范 working-memory 路径
 - 如果这个节点有专用 node session，先调用 helper `bind`
 - 然后调用 helper `transition-node <runId> <nodeId> running`
 - 如果这个节点被派发到专用 node session，那么派发后 root Orchestrator Session 就必须立即停止该节点的实质任务执行，只保留 orchestration、监控和审阅职责
@@ -256,7 +256,7 @@ child task 必须包含：
 spawn child 时，父 session 还应该：
 
 - 写出 `handoff.md`
-- 预创建 `plan.md`、`findings.md` 和 `progress.md`
+- 只有当 child 启动前这个节点已经需要多步工作记录时，才创建 `plan.md`、`findings.md` 和 `progress.md`
 - 记录本次派发实际使用的父 session key
 
 ## 10. Subagent 返回后怎么办

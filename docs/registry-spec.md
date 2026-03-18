@@ -173,4 +173,4 @@ Each node may write:
 - `workingMemory`
 - `payload`
 
-The canonical node-local working-memory files should be scaffolded before execution begins for node kinds that support them, even if they start out empty. Bootstrap is incomplete until those files exist, and the orchestrator should not dispatch the first node or append `node.started` before that check passes.
+The canonical node-local working-memory paths should be declared up front in `workingMemory`, but placeholder `plan.md`, `findings.md`, and `progress.md` files do not need to be scaffolded before execution begins. Create those files only when the node actually needs multi-step notes. Bootstrap is complete once the helper-created run files and node directories exist. For subagent nodes, create `handoff.md` before spawn.

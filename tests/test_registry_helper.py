@@ -126,7 +126,6 @@ def test_registry_helper_scaffold_and_transitions(tmp_path: Path) -> None:
     state = json.loads((run_dir / "state.json").read_text(encoding="utf-8"))
     assert state["nodes"][0]["status"] == "ready"
     assert state["nodes"][1]["status"] == "pending"
-    assert (run_dir / "nodes" / "gather-context" / "plan.md").exists()
     assert (run_dir / "control.jsonl").read_text(encoding="utf-8") == ""
 
     run_helper(

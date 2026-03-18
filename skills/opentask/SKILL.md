@@ -34,7 +34,7 @@ For a real run, the startup action order should be:
 
 For each new user request that invokes `opentask`, re-establish this ordered startup sequence for that run attempt by reading these files from disk again. Do not rely on older in-context copies of `SKILL.md`, `orchestrator.md`, `registry.md`, or `operations.md`, and do not assume an earlier read from an older turn still makes the current bootstrap valid.
 
-Once you start run scaffolding, finish it in the same execution pass. Do not stop after writing only `workflows/*.task.md` or only node directories. A valid bootstrap must leave behind `workflow.lock.md`, `state.json`, `refs.json`, `events.jsonl`, `control.jsonl`, node directories, and canonical node-local working-memory files for every eligible node.
+Once you start run scaffolding, finish it in the same execution pass. Do not stop after writing only `workflows/*.task.md` or only node directories. A valid bootstrap must leave behind `workflow.lock.md`, `state.json`, `refs.json`, `events.jsonl`, `control.jsonl`, node directories, and canonical node-local working-memory metadata for every eligible node.
 
 ## Mandatory Bootstrap Gate
 
@@ -93,7 +93,8 @@ If you cannot read this file or the linked references from the current session, 
 - Do not fabricate or backdate timestamps, session keys, delivery metadata, cron ids, or lifecycle transitions. Use discovered values and the real write-time clock, or leave the field for the runtime layer to populate. If a lifecycle event already exists, do not append a second hand-authored copy of the same transition.
 - Leave node outputs as `report.md` and `result.json`.
 - For complex execution nodes, keep node-local working memory in `runs/<runId>/nodes/<nodeId>/plan.md`, `findings.md`, and `progress.md`; subagent handoffs belong in `handoff.md`.
-- During run scaffolding, create `workflow.lock.md`, `state.json`, `refs.json`, `events.jsonl`, `control.jsonl`, node directories, canonical working-memory files, and complete initial node metadata before substantial execution begins.
+- During run scaffolding, create `workflow.lock.md`, `state.json`, `refs.json`, `events.jsonl`, `control.jsonl`, node directories, canonical working-memory paths in state, and complete initial node metadata before substantial execution begins.
+- Do not precreate placeholder `plan.md`, `findings.md`, or `progress.md` files. Create them when the node actually needs multi-step notes. For subagents, write `handoff.md` before spawn.
 - A partially created run directory is still a protocol failure. If you notice a run with only `nodes/` or only a source workflow file, repair the missing scaffold files before any further planning, research, user messaging, or dispatch.
 - Do not dispatch the first node, append `node.started`, or request driver review until bootstrap is complete. If scaffolding is interrupted, repair the missing files first and only then continue execution.
 - After a node has been dispatched to a dedicated node session or child session, the Orchestrator Session must stop doing that node's substantive task work itself. It may monitor, update registry state, handle controls, and review results, but it must not continue the same research, browsing, writing, or analysis in parallel from the root session.

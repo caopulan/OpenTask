@@ -16,7 +16,7 @@ Do not call `sessions_list`, `sessions_spawn`, cron tools, or message-send tools
 If `sessions_list` or any other non-read OpenClaw tool appears before `operations.md` is read, treat that startup attempt as protocol-invalid and restart the startup sequence cleanly before writing or dispatching anything.
 If that invalid startup already created partial workflow or run artifacts for the current attempt, delete or repair them before you restart. Reading `operations.md` later in the same failed attempt does not make the original bootstrap valid.
 Before a run is created or bound, do not begin substantive task execution. The pre-run phase is only for startup reads, registry/session resolution, minimal workflow-shaping discovery, and scaffolding.
-Once scaffolding starts, do not leave it half-finished. The same pass that creates the run should also create `workflow.lock.md`, `state.json`, `refs.json`, `events.jsonl`, `control.jsonl`, node directories, and canonical node-local working-memory files.
+Once scaffolding starts, do not leave it half-finished. The same pass that creates the run should also create `workflow.lock.md`, `state.json`, `refs.json`, `events.jsonl`, `control.jsonl`, node directories, and canonical node-local working-memory metadata.
 The first write inside a new `runs/<runId>/` path must come from helper `scaffold`. Do not pre-create the run directory, `workflow.lock.md`, or any runtime JSONL/JSON files by hand.
 
 Registry root rules:
@@ -164,7 +164,7 @@ When the workflow is ready:
 1. Choose a `runId`.
 2. Prefer using the source workflow frontmatter directly with `skills/opentask/scripts/registry_helper.py scaffold`. Only write a temporary JSON bootstrap spec when the workflow shape needs an explicit helper override.
 3. Run `python3 skills/opentask/scripts/registry_helper.py --help` if you have not already confirmed the helper in this bootstrap pass.
-4. Run helper `scaffold` to create `workflow.lock.md`, `state.json`, `refs.json`, `events.jsonl`, `control.jsonl`, node directories, and canonical node-local working-memory files. This is the first valid write under `runs/<runId>/`.
+4. Run helper `scaffold` to create `workflow.lock.md`, `state.json`, `refs.json`, `events.jsonl`, `control.jsonl`, node directories, and canonical node-local working-memory metadata. This is the first valid write under `runs/<runId>/`.
 5. Fill `artifactPaths` and `workingMemory` for every eligible node up front through the helper-managed scaffold.
 6. Record the current session as:
    - `sourceSessionKey`
@@ -220,7 +220,7 @@ The reusable source workflow prompt may stay generic. Put concrete `runs/<runId>
 
 Before dispatching a `session_turn` or `summary` node:
 
-- verify that bootstrap is complete and the node-local working-memory files exist
+- verify that bootstrap is complete and the canonical node-local working-memory paths are present in state
 - call helper `bind` if a dedicated node session is created for this node
 - call helper `transition-node <runId> <nodeId> running`
 - if the node is being dispatched to a dedicated node session, stop doing substantive task work for that node in the Orchestrator Session immediately after dispatch; the root session should return to orchestration, monitoring, and review only
@@ -256,7 +256,7 @@ Call helper `bind` for the child session mapping, then call helper `transition-n
 When spawning a child, the parent should also:
 
 - write `handoff.md`
-- precreate `plan.md`, `findings.md`, and `progress.md`
+- create `plan.md`, `findings.md`, and `progress.md` only if the node already needs multi-step notes before the child starts
 - record the actual parent session key used for the dispatch
 
 ## 10. After a Subagent Returns

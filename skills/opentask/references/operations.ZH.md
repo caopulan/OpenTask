@@ -128,7 +128,7 @@ child prompt 应包含：
 - 不得修改全局状态
 - 除非明确要求，否则不要直接向用户播报
 
-在 spawn 前，先确保节点目录里已经有规范的 `plan.md`、`findings.md`、`progress.md` 和 `handoff.md`。
+在 spawn 前，先确保节点目录存在，并且已经写好 `handoff.md`。要把规范的 `plan.md`、`findings.md`、`progress.md` 路径传给 child，但除非节点已经需要多步工作记录，否则不要预创建这些占位文件。
 spawn child 时，把 `cwd` 设为 registry root，这样 run-local 的 `runs/<runId>/...` 路径才能正确解析。
 一旦 spawn 被接受，立即调用 helper `bind`，把 `childSessionKey` 和可用的 child `runId` 记到 registry 里。
 

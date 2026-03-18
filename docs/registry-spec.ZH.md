@@ -173,4 +173,4 @@ frontmatter 必填字段：
 - `workingMemory`
 - `payload`
 
-对支持节点级 working memory 的节点类型，应在执行开始前就 scaffold 这些规范文件，即使它们一开始是空的。只有当这些文件都存在时 bootstrap 才算完成；在此之前，orchestrator 不应派发第一个节点，也不应追加 `node.started`。
+对于支持节点级 working memory 的节点类型，应先在 `workingMemory` 里声明规范路径，但不必在执行前就 scaffold 出占位的 `plan.md`、`findings.md`、`progress.md`。只有当节点确实需要多步工作记录时才创建这些文件。bootstrap 在 helper 创建完规范 run 文件和节点目录后就算完成。对于 `subagent` 节点，应在 spawn 前写好 `handoff.md`。

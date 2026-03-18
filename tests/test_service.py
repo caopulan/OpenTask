@@ -573,7 +573,7 @@ async def test_driver_directive_normalizes_minimal_add_node_payload(tmp_path: Pa
     assert review.working_memory is not None
     assert review.working_memory.plan == "nodes/review-draft/plan.md"
     review_plan = tmp_path / ".opentask" / "runs" / state.run_id / "nodes" / "review-draft" / "plan.md"
-    assert review_plan.exists()
+    assert not review_plan.exists()
 
 
 @pytest.mark.asyncio

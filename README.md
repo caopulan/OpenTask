@@ -82,8 +82,8 @@ Key files:
 - `refs.json`: OpenClaw runtime bindings such as source session, root session, cron, child sessions
 - `events.jsonl`: append-only audit trail
 - `control.jsonl`: explicit operator or UI control requests
-- `nodes/<nodeId>/plan.md`, `findings.md`, `progress.md`: canonical node-local working memory
-- `nodes/<nodeId>/handoff.md`: canonical parent-to-child brief for subagent nodes
+- `nodes/<nodeId>/plan.md`, `findings.md`, `progress.md`: canonical node-local working-memory paths, created lazily when a node actually needs multi-step notes
+- `nodes/<nodeId>/handoff.md`: canonical parent-to-child brief for subagent nodes, typically written before dispatch
 
 OpenClaw-native rule:
 
